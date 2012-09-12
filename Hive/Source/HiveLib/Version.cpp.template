@@ -1,0 +1,4 @@
+#pragma once
+#include "Version.h"
+
+const std::string GIT_VERSION = "%GIT_VERSION%";

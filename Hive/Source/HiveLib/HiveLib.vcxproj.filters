@@ -1,0 +1,47 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="DataSource">
+      <UniqueIdentifier>{1cb43970-0f83-4a32-8927-28e02fdcbc94}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="HiveExtApp.cpp" />
+    <ClCompile Include="Sqf.cpp" />
+    <ClCompile Include="Version.cpp" />
+    <ClCompile Include="ExtStartup.cpp" />
+    <ClCompile Include="DataSource\SqlCharDataSource.cpp">
+      <Filter>DataSource</Filter>
+    </ClCompile>
+    <ClCompile Include="DataSource\CharDataSource.cpp">
+      <Filter>DataSource</Filter>
+    </ClCompile>
+    <ClCompile Include="DataSource\SqlObjDataSource.cpp">
+      <Filter>DataSource</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="DataSource\DataSource.h">
+      <Filter>DataSource</Filter>
+    </ClInclude>
+    <ClInclude Include="DataSource\SqlDataSource.h">
+      <Filter>DataSource</Filter>
+    </ClInclude>
+    <ClInclude Include="HiveExtApp.h" />
+    <ClInclude Include="Sqf.h" />
+    <ClInclude Include="Version.h" />
+    <ClInclude Include="ExtStartup.h" />
+    <ClInclude Include="DataSource\ObjDataSource.h">
+      <Filter>DataSource</Filter>
+    </ClInclude>
+    <ClInclude Include="DataSource\CharDataSource.h">
+      <Filter>DataSource</Filter>
+    </ClInclude>
+    <ClInclude Include="DataSource\SqlCharDataSource.h">
+      <Filter>DataSource</Filter>
+    </ClInclude>
+    <ClInclude Include="DataSource\SqlObjDataSource.h">
+      <Filter>DataSource</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>

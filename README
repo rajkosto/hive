@@ -1,0 +1,55 @@
+Compiling:
+
+You must have a copy of Visual Studio 2010 with SP1 installed.
+
+Also required is the boost library, both includes and compiled libraries
+If you don't have it, get boost from http://www.boost.org/
+Compilation instructions (how to use bjam for your compiler) can be found at http://www.boost.org/doc/libs/1_51_0/more/getting_started/windows.html
+Once compiled, make sure to add the include and lib folders to your VC++ directories inside Visual Studio.
+
+The other 2 dependencies are project-local.
+Because of their size, they aren't directly included into the project tree
+
+Get poco from http://pocoproject.org/download/index.html (basic edition is sufficient)
+It must be extracted into Dependencies10/poco folder, such that the folder structure matches the one in INSTRUCTIONS.TXT
+After extracting, create a Visual Studio 2010 Command prompt, and invoke build_vs100.bat from it
+
+Get tbb from http://threadingbuildingblocks.org/download.php
+It is recommended to get the precompiled binaries for windows of the latest stable release
+Compilation of this library will not be discussed here
+Extract the downloaded archive into Dependencies10/tbb folder, such that the folder structure matches the one in INSTRUCTIONS.TXT
+
+You are now ready to open Source/Hive.sln in Visual Studio 2010
+From there, simply compile the Release configuration to get binaries that can be used in-game
+The Debug configuration simply compiles an executable that runs some tests, and is not relevant here
+
+Usage:
+
+If you don't want to compile, you can download a prepackaged release for each revision from the github pages.
+After successful compilation (or download of a prepackaged release), the Binaries folder should contain HiveExt.dll and Database.dll
+Database.dll should be placed in the root directory of your game installation
+If you don't have the TBB library installed to global system paths, those dlls should also be copied to the same dir as Database.dll
+HiveExt.dll needs to go inside the currently used hive mod folder (usually @hive under the root dir)
+While your customised copy of HiveExt.ini goes into your profile folder (server profile, like cfgdayz, next to the .RPT files)
+For a description of available HiveExt.ini options, consult that file itself, where the descriptions are marked as comments
+
+If you are going to run your own database server to connect to, look inside the SQL folder for the scripts that you need to execute on your database
+the x_tables.sql files will create the tables, while the obj_sample_data.sql has the default spawn order for vehicles in it (make sure to change the instance id)
+If you are already running some similar db layout, MAKE SURE to read the ENTIRETY of HiveExt.ini (especially the one about the Objects table name, and the PlayerID column)
+to be certain that the parameters inside match what you are currently running as the database.
+
+If you are going to use the "Reset OOB Vehicles" feature in HiveExt.dll, make sure to replace the dayz_server.pbo file under @hive/AddOns with the appropriate
+version you can find in the SQF/pbo folder.
+
+Final:
+
+This project was started as a better alternative to the "official" hive access dll for DayZ, however, after it's been obvious that it would never actually be picked up
+or integrated into the project in any way, and that the most popular usage of it was running "private" or "local" servers for the game, I might as well remove all
+the restrictions and certificate systems that were in place, and just let it connect to whatever server you want.
+That means that YOU CAN use it to connect to the official servers, all you need is the correct Username and Password to put into the configuration file.
+Please don't ask me for this information, as exposing it would make the DayZ servers even MORE vulnerable to server admin abuse.
+
+Hive access library by Rajko Stojadinovic (https://github.com/rajkosto)
+If you would be so kind, and are satisfied with what this thing does, maybe send a donation my way to payment@rajko.info
+
+Good luck with your DayZ hosting !

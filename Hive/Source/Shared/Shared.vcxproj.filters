@@ -1,0 +1,66 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Common">
+      <UniqueIdentifier>{d3432b9a-e190-4157-997f-0e22a0830c33}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Server">
+      <UniqueIdentifier>{af42941c-bc37-493a-910c-41b3aa27b2a2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Policy">
+      <UniqueIdentifier>{de37bd18-611c-4ce6-a94f-cd8ee3e1caa8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Library">
+      <UniqueIdentifier>{ea9da682-83b1-45d1-bc8f-ea6cd344aded}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Library\Database">
+      <UniqueIdentifier>{8cb2e685-e396-4ed8-add3-2d37c626b6ef}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Common\Types.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\Exception.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\Timer.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="Library\SharedLibraryLoader.h">
+      <Filter>Library</Filter>
+    </ClInclude>
+    <ClInclude Include="Library\Database\DatabaseLoader.h">
+      <Filter>Library\Database</Filter>
+    </ClInclude>
+    <ClInclude Include="Server\AppServer.h">
+      <Filter>Server</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\Pimpl.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\PimplImpl.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\Singleton.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\SingletonImpl.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Policy\Allocator.cpp">
+      <Filter>Policy</Filter>
+    </ClCompile>
+    <ClCompile Include="Common\Timer.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="Library\Database\DatabaseLoader.cpp">
+      <Filter>Library\Database</Filter>
+    </ClCompile>
+    <ClCompile Include="Server\AppServer.cpp">
+      <Filter>Server</Filter>
+    </ClCompile>
+  </ItemGroup>
+</Project>
