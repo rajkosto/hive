@@ -24,7 +24,7 @@
 class SqlCharDataSource : public SqlDataSource, public CharDataSource
 {
 public:
-	SqlCharDataSource(Poco::Logger& logger, shared_ptr<Database> db, const string& idFieldName="PlayerUID");
+	SqlCharDataSource(Poco::Logger& logger, shared_ptr<Database> db, const string& idFieldName, const string& wsFieldName);
 	~SqlCharDataSource();
 
 	Sqf::Value fetchCharacterInitial( string playerId, int serverId, const string& playerName ) override;
@@ -36,4 +36,5 @@ public:
 
 private:
 	string _idFieldName;
+	string _wsFieldName;
 };

@@ -23,9 +23,10 @@
 using boost::lexical_cast;
 using boost::bad_lexical_cast;
 
-SqlCharDataSource::SqlCharDataSource( Poco::Logger& logger, shared_ptr<Database> db, const string& idFieldName/*="PlayerUID"*/ ) : SqlDataSource(logger,db)
+SqlCharDataSource::SqlCharDataSource( Poco::Logger& logger, shared_ptr<Database> db, const string& idFieldName, const string& wsFieldName ) : SqlDataSource(logger,db)
 {
 	_idFieldName = getDB()->escape_string(idFieldName);
+	_wsFieldName = getDB()->escape_string(wsFieldName);
 }
 
 SqlCharDataSource::~SqlCharDataSource() {}
@@ -68,7 +69,7 @@ Sqf::Value SqlCharDataSource::fetchCharacterInitial( string playerId, int server
 
 	//get characters from db
 	scoped_ptr<QueryResult> charsRes(getDB()->PQuery(
-		("SELECT `CharacterID`, `Worldspace`, `Inventory`, `Backpack`, "
+		("SELECT `CharacterID`, `"+_wsFieldName+"`, `Inventory`, `Backpack`, "
 		"TIMESTAMPDIFF(MINUTE,`Datestamp`,`LastLogin`) as `SurvivalTime`, "
 		"TIMESTAMPDIFF(MINUTE,`LastAte`,NOW()) as `MinsLastAte`, "
 		"TIMESTAMPDIFF(MINUTE,`LastDrank`,NOW()) as `MinsLastDrank`, "
@@ -177,7 +178,7 @@ Sqf::Value SqlCharDataSource::fetchCharacterInitial( string playerId, int server
 			//update last character login
 			static SqlStatementID stmtId;
 			scoped_ptr<SqlStatement> stmt(getDB()->CreateStatement(stmtId, 
-				"INSERT INTO `Character_DATA` (`"+_idFieldName+"`, `InstanceID`, `Worldspace`, `Inventory`, `Backpack`, `Medical`, `Generation`, `Datestamp`, `LastLogin`, `LastAte`, `LastDrank`, `Humanity`) "
+				"INSERT INTO `Character_DATA` (`"+_idFieldName+"`, `InstanceID`, `"+_wsFieldName+"`, `Inventory`, `Backpack`, `Medical`, `Generation`, `Datestamp`, `LastLogin`, `LastAte`, `LastDrank`, `Humanity`) "
 				"VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)"));
 			stmt->addString(playerId);
 			stmt->addInt32(serverId);
@@ -236,8 +237,8 @@ Sqf::Value SqlCharDataSource::fetchCharacterDetails( int characterId )
 	Sqf::Parameters retVal;
 	//get details from db
 	scoped_ptr<QueryResult> charDetRes(getDB()->PQuery(
-		"SELECT `Worldspace`, `Medical`, `Generation`, `KillsZ`, `HeadshotsZ`, `KillsH`, `KillsB`, `CurrentState`, `Humanity` "
-		"FROM `Character_DATA` WHERE `CharacterID`=%d", characterId));
+		"SELECT `%s`, `Medical`, `Generation`, `KillsZ`, `HeadshotsZ`, `KillsH`, `KillsB`, `CurrentState`, `Humanity` "
+		"FROM `Character_DATA` WHERE `CharacterID`=%d", _wsFieldName.c_str(), characterId));
 
 	if (charDetRes)
 	{
@@ -342,7 +343,11 @@ bool SqlCharDataSource::updateCharacter( int characterId, const FieldsType& fiel
 		string query = "UPDATE `Character_DATA` SET ";
 		for (auto it=sqlFields.begin();it!=sqlFields.end();)
 		{
-			query += "`" + it->first + "` = " + it->second;
+			string fieldName = it->first;
+			if (fieldName == "Worldspace")
+				fieldName = _wsFieldName;
+
+			query += "`" + fieldName + "` = " + it->second;
 			++it;
 			if (it != sqlFields.end())
 				query += " , ";

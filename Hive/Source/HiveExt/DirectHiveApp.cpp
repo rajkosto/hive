@@ -45,17 +45,10 @@ bool DirectHiveApp::initialiseService()
 	
 	//pass the db along to character datasource
 	{
-		Poco::AutoPtr<Poco::Util::AbstractConfiguration> globalDBConf(config().createView("Characters"));
-		try
-		{
-			_charData.reset(new SqlCharDataSource(_logger,_charDb,globalDBConf->getString("IDField")));
-		}
-		catch(const Poco::NotFoundException&)
-		{
-			_charData.reset(new SqlCharDataSource(_logger,_charDb));
-		}
+		Poco::AutoPtr<Poco::Util::AbstractConfiguration> charDBConf(config().createView("Characters"));
+		_charData.reset(new SqlCharDataSource(_logger,
+			_charDb,charDBConf->getString("IDField","PlayerUID"),charDBConf->getString("WSField","Worldspace")));	
 	}
-	
 
 	Poco::AutoPtr<Poco::Util::AbstractConfiguration> objDBConf(config().createView("ObjectDB"));
 	bool useExternalObjDb = objDBConf->getBool("Use",false);
