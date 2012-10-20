@@ -331,7 +331,15 @@ bool SqlCharDataSource::updateCharacter( int characterId, const FieldsType& fiel
 			name == "KillsH" || name == "KillsB" || name == "Humanity")
 		{
 			int integeroid = static_cast<int>(Sqf::GetDouble(val));
-			if (integeroid > 0) sqlFields[name] = "(`"+name+"` + "+lexical_cast<string>(integeroid)+")";
+			char intSign = '+';
+			if (integeroid < 0)
+			{
+				intSign = '-';
+				integeroid = abs(integeroid);
+			}
+
+			if (integeroid > 0) 
+				sqlFields[name] = "(`"+name+"` "+intSign+" "+lexical_cast<string>(integeroid)+")";
 		}
 		//strings
 		else if (name == "Model")
