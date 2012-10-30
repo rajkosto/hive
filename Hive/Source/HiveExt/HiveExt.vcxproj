@@ -16,6 +16,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DirectHiveApp.h" />
+    <ClInclude Include="resource.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\HiveLib\HiveLib.vcxproj">
@@ -24,6 +25,9 @@
     <ProjectReference Include="..\Shared\Shared.vcxproj">
       <Project>{92c57338-e848-422b-8e81-6f6d11671750}</Project>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="Resource.rc" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{2F502C7B-F168-46C0-B239-F9635237959B}</ProjectGuid>

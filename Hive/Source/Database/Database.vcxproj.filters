@@ -33,6 +33,7 @@
       <Filter>Implementation</Filter>
     </ClInclude>
     <ClInclude Include="Callback.h" />
+    <ClInclude Include="resource.h" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Implementation">
@@ -68,5 +69,8 @@
       <Filter>Implementation</Filter>
     </ClCompile>
     <ClCompile Include="Manifest.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="Resource.rc" />
   </ItemGroup>
 </Project>

@@ -24,6 +24,7 @@
     <ClInclude Include="Implementation\SqlPreparedStatement.h" />
     <ClInclude Include="Implementation\SqlStatementImpl.h" />
     <ClInclude Include="QueryResult.h" />
+    <ClInclude Include="resource.h" />
     <ClInclude Include="SqlStatement.h" />
   </ItemGroup>
   <ItemGroup>
@@ -42,6 +43,9 @@
     <ProjectReference Include="..\Shared\Shared.vcxproj">
       <Project>{92c57338-e848-422b-8e81-6f6d11671750}</Project>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="Resource.rc" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{E0E04F80-0DB4-4946-B956-4BCA754DAB71}</ProjectGuid>
