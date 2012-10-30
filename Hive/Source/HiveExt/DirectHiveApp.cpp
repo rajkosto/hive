@@ -29,7 +29,6 @@ bool DirectHiveApp::initialiseService()
 	_charDb = DatabaseLoader::create(DatabaseLoader::DBTYPE_MYSQL);
 
 	Poco::Logger& dbLogger = Poco::Logger::get("Database");
-	dbLogger.setLevel("trace");
 
 	string initString;
 	{
@@ -58,7 +57,6 @@ bool DirectHiveApp::initialiseService()
 		catch (const DatabaseLoader::CreationError&) { return false; }
 		
 		Poco::Logger& objDBLogger = Poco::Logger::get("ObjectDB");
-		objDBLogger.setLevel("trace");
 
 		if (!_objDb->Initialize(objDBLogger,DatabaseLoader::makeInitString(objDBConf)))
 			return false;

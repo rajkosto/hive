@@ -93,6 +93,7 @@ void AppServer::initLogger()
 
 		AutoPtr<PatternFormatter> fileFormatter(new PatternFormatter);
 		fileFormatter->setProperty("pattern", logConf->getString("FilePattern","%Y-%m-%d %H:%M:%S %s: [%p] %t"));
+		fileFormatter->setProperty("times", "local");
 
 		AutoPtr<FormattingChannel> fileFormatChan(new FormattingChannel(fileFormatter, fileChan));
 		splitChan->addChannel(fileFormatChan);
