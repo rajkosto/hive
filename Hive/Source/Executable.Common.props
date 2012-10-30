@@ -10,7 +10,7 @@
       <AdditionalLibraryDirectories>$(SolutionDir)..\Out\$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <PostBuildEvent>
-      <Command>copy /Y $(TargetPath) $(BinariesDir)</Command>
+      <Command>copy /Y "$(TargetPath)" "$(BinariesDir)"</Command>
     </PostBuildEvent>
     <PostBuildEvent>
       <Message>Copy Binary Artifact</Message>
