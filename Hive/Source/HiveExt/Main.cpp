@@ -24,7 +24,8 @@ BOOL APIENTRY DllMain( HMODULE hModule, DWORD  ul_reason_for_call, LPVOID lpRese
 	switch (ul_reason_for_call)
 	{
 	case DLL_PROCESS_ATTACH:
-		return ExtStartup::ProcessStartup([] (string profileFolder){ return new DirectHiveApp(profileFolder); });
+		ExtStartup::ProcessStartup([] (string profileFolder){ return new DirectHiveApp(profileFolder); });
+		break;
 	case DLL_THREAD_ATTACH:
 		break;
 	case DLL_THREAD_DETACH:

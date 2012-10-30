@@ -74,9 +74,9 @@ void AppServer::initLogger()
 	using Poco::ConsoleChannel;
 	using Poco::FileChannel;
 	using Poco::SplitterChannel;
+	using Poco::AsyncChannel;
 	using Poco::FormattingChannel;
 	using Poco::PatternFormatter;
-	using Poco::AsyncChannel;
 	using Poco::Util::AbstractConfiguration;
 	using Poco::Logger;
 
@@ -96,7 +96,8 @@ void AppServer::initLogger()
 		fileFormatter->setProperty("times", "local");
 
 		AutoPtr<FormattingChannel> fileFormatChan(new FormattingChannel(fileFormatter, fileChan));
-		splitChan->addChannel(fileFormatChan);
+		AutoPtr<AsyncChannel> asyncChan(new AsyncChannel(fileFormatChan));
+		splitChan->addChannel(asyncChan);
 	}
 	//Set up the console channel
 	{
@@ -106,16 +107,12 @@ void AppServer::initLogger()
 		consoleFormatter->setProperty("pattern", logConf->getString("ConsolePattern","%s(%P/%I): [%p] %t") );
 
 		AutoPtr<FormattingChannel> consFormatChan(new FormattingChannel(consoleFormatter, consoleChan));
-
-		splitChan->addChannel(consFormatChan);
+		AutoPtr<AsyncChannel> asyncChan(new AsyncChannel(consFormatChan));
+		splitChan->addChannel(asyncChan);
 	}
 
-#ifndef SYNCHRONOUS_LOGGING
-	AutoPtr<AsyncChannel> asyncChan(new AsyncChannel(splitChan));
-	Logger::root().setChannel(asyncChan);
-#else
 	Logger::root().setChannel(splitChan);
-#endif
+
 	std::string loggingLevel = Poco::toLower(logConf->getString("Level","information"));
 	Logger::root().setLevel(loggingLevel);
 

@@ -24,7 +24,7 @@
 namespace ExtStartup
 {
 	typedef boost::function<HiveExtApp*(string profileFolder)> MakeAppFunction;
-	bool ProcessStartup(MakeAppFunction makeAppFunc);
+	void ProcessStartup(MakeAppFunction makeAppFunc);
 	void ProcessShutdown();
 }
 
