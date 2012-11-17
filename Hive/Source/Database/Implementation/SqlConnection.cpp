@@ -26,33 +26,25 @@ SqlPreparedStatement* SqlConnection::CreateStatement( const std::string& fmt )
 	return new SqlPlainPreparedStatement(fmt, *this);
 }
 
-void SqlConnection::FreePreparedStatements()
+void SqlConnection::clear()
 {
 	SqlConnection::Lock guard(this);
-
-	size_t nStmts = m_holder.size();
-	for (size_t i = 0; i < nStmts; ++i)
-		delete m_holder[i];
-
-	m_holder.clear();
+	m_stmtHolder.clear();
 }
 
-SqlPreparedStatement* SqlConnection::GetStmt( int nIndex )
+SqlPreparedStatement* SqlConnection::GetStmt( const SqlStatementID& stId )
 {
-	if(nIndex < 0)
+	if(!stId.isInitialized())
 		return NULL;
 
-	//resize stmt container
-	if(m_holder.size() <= nIndex)
-		m_holder.resize(nIndex + 1, NULL);
+	UInt32 stmtId = stId.getId();
+	SqlPreparedStatement* pStmt = m_stmtHolder.getPrepStmtObj(stmtId);
 
-	SqlPreparedStatement * pStmt = NULL;
-
-	//create stmt if needed
-	if(m_holder[nIndex] == NULL)
+	//create stmt obj if needed
+	if(pStmt == NULL)
 	{
 		//obtain SQL request string
-		std::string fmt = m_db.GetStmtString(nIndex);
+		std::string fmt = m_db.GetStmtString(stmtId);
 		poco_assert(fmt.length());
 		//allocate SQlPreparedStatement object
 		pStmt = CreateStatement(fmt);
@@ -64,23 +56,21 @@ SqlPreparedStatement* SqlConnection::GetStmt( int nIndex )
 		}
 
 		//save statement in internal registry
-		m_holder[nIndex] = pStmt;
+		m_stmtHolder.insertPrepStmtObj(stmtId,pStmt);
 	}
-	else
-		pStmt = m_holder[nIndex];
 
 	return pStmt;
 }
 
-bool SqlConnection::ExecuteStmt(int nIndex, const SqlStmtParameters& id )
+bool SqlConnection::ExecuteStmt(const SqlStatementID& stId, const SqlStmtParameters& params )
 {
-	if(nIndex == -1)
+	if(!stId.isInitialized())
 		return false;
 
 	//get prepared statement object
-	SqlPreparedStatement* pStmt = GetStmt(nIndex);
+	SqlPreparedStatement* pStmt = GetStmt(stId);
 	//bind parameters
-	pStmt->bind(id);
+	pStmt->bind(params);
 	//execute statement
 	return pStmt->execute();
 }
@@ -104,4 +94,30 @@ bool SqlConnection::CommitTransaction()
 bool SqlConnection::RollbackTransaction()
 {
 	return true;
+}
+
+void SqlConnection::StmtHolder::clear()
+{
+	for (StatementObjMap::iterator it=_map.begin();it!=_map.end();++it)
+		delete it->second;
+
+	_map.clear();
+}
+
+SqlPreparedStatement* SqlConnection::StmtHolder::getPrepStmtObj( UInt32 stmtId ) const
+{
+	StatementObjMap::const_iterator iter = _map.find(stmtId);
+	if(iter == _map.end())
+		return NULL;
+	else
+		return iter->second;
+}
+
+void SqlConnection::StmtHolder::insertPrepStmtObj( UInt32 stmtId, SqlPreparedStatement* stmtObj )
+{
+	StatementObjMap::iterator iter = _map.find(stmtId);
+	if(iter != _map.end())
+		delete iter->second;
+
+	_map[stmtId] = stmtObj;
 }

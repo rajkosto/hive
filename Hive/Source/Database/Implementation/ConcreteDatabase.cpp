@@ -32,7 +32,7 @@ static const size_t MAX_CONNECTION_POOL_SIZE = 16;
 //////////////////////////////////////////////////////////////////////////
 
 ConcreteDatabase::ConcreteDatabase() : m_pAsyncConn(NULL), m_pResultQueue(NULL), m_threadBody(NULL), m_delayThread(NULL),
-	m_logSQL(false), m_pingIntervallms(0), m_nQueryConnPoolSize(1), m_bAllowAsyncTransactions(false), m_iStmtIndex(-1), _logger(nullptr)
+	m_logSQL(false), m_pingIntervallms(0), m_nQueryConnPoolSize(1), m_bAllowAsyncTransactions(false), _logger(nullptr)
 {
 	m_nQueryCounter = -1;
 }
@@ -462,7 +462,7 @@ bool ConcreteDatabase::ExecuteStmt( const SqlStatementID& id, SqlStmtParameters*
 	if(pTrans)
 	{
 		//add SQL request to trans queue
-		pTrans->DelayExecute(new SqlPreparedRequest(id.ID(), params));
+		pTrans->DelayExecute(new SqlPreparedRequest(id, params));
 	}
 	else
 	{
@@ -471,7 +471,7 @@ bool ConcreteDatabase::ExecuteStmt( const SqlStatementID& id, SqlStmtParameters*
 			return DirectExecuteStmt(id, params);
 
 		// Simple sql statement
-		m_threadBody->Delay(new SqlPreparedRequest(id.ID(), params));
+		m_threadBody->Delay(new SqlPreparedRequest(id, params));
 	}
 
 	return true;
@@ -483,27 +483,17 @@ bool ConcreteDatabase::DirectExecuteStmt( const SqlStatementID& id, SqlStmtParam
 	std::auto_ptr<SqlStmtParameters> p(params);
 	//execute statement
 	SqlConnection::Lock _guard(getAsyncConnection());
-	return _guard->ExecuteStmt(id.ID(), *params);
+	return _guard->ExecuteStmt(id, *params);
 }
 
 SqlStatement* ConcreteDatabase::CreateStatement(SqlStatementID& index, const std::string& fmt )
 {
-	int nId = -1;
-	//check if statement ID is initialized
-	if(!index.initialized())
+	//initialize the statement if its not
+	if(!index.isInitialized())
 	{
 		//count input parameters
-		int nParams = std::count(fmt.begin(), fmt.end(), '?');
-		//find existing or add a new record in registry
-		LOCK_GUARD _guard(m_stmtGuard);
-		PreparedStmtRegistry::const_iterator iter = m_stmtRegistry.find(fmt);
-		if(iter == m_stmtRegistry.end())
-		{
-			nId = ++m_iStmtIndex;
-			m_stmtRegistry[fmt] = nId;
-		}
-		else
-			nId = iter->second;
+		size_t nParams = std::count(fmt.begin(), fmt.end(), '?');
+		UInt32 nId = m_prepStmtRegistry.getStmtId(fmt);
 
 		//save initialized statement index info
 		index.init(nId, nParams);
@@ -512,21 +502,9 @@ SqlStatement* ConcreteDatabase::CreateStatement(SqlStatementID& index, const std
 	return new SqlStatementImpl(index, *this);
 }
 
-std::string ConcreteDatabase::GetStmtString(const int stmtId) const
+std::string ConcreteDatabase::GetStmtString(UInt32 stmtId) const
 {
-	LOCK_GUARD _guard(m_stmtGuard);
-
-	if(stmtId == -1 || stmtId > m_iStmtIndex)
-		return std::string();
-
-	PreparedStmtRegistry::const_iterator iter_last = m_stmtRegistry.end();
-	for(PreparedStmtRegistry::const_iterator iter = m_stmtRegistry.begin(); iter != iter_last; ++iter)
-	{
-		if(iter->second == stmtId)
-			return iter->first;
-	}
-
-	return std::string();
+	return m_prepStmtRegistry.getStmtString(stmtId);
 }
 
 bool ConcreteDatabase::DoDelay( const char* sql, QueryCallback callback )
@@ -571,4 +549,47 @@ void ConcreteDatabase::TransHelper::reset()
 		delete m_pTrans;
 		m_pTrans = NULL;
 	}
+}
+
+namespace
+{
+	UInt32 GetUniqueId()
+	{
+		UInt64 cpuTimer = __rdtsc();
+		UInt32 mixed = cpuTimer & 0xFFFFFFFF;
+		mixed ^= (UInt64(cpuTimer >> 32)) & 0xFFFFFFFF;
+		return mixed;
+	}
+};
+
+UInt32 ConcreteDatabase::PreparedStmtRegistry::getStmtId( const std::string& fmt )
+{
+	UInt32 nId;
+
+	RegistryGuardType _guard(_lock);
+	StatementMap::const_iterator iter = _map.find(fmt);
+	if(iter == _map.end())
+	{
+		nId = GetUniqueId();
+		_map[fmt] = nId;
+	}
+	else
+		nId = iter->second;
+
+	return nId;
+}
+
+std::string ConcreteDatabase::PreparedStmtRegistry::getStmtString( UInt32 stmtId ) const
+{
+	if(stmtId == 0)
+		return std::string();
+
+	RegistryGuardType _guard(_lock);
+	for(StatementMap::const_iterator iter = _map.begin(); iter != _map.end(); ++iter)
+	{
+		if(iter->second == stmtId)
+			return iter->first;
+	}
+
+	return std::string();
 }

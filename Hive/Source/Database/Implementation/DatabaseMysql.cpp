@@ -106,8 +106,8 @@ MySQLConnection::MySQLConnection( Database& db ) : SqlConnection(db), mMysql(NUL
 
 MySQLConnection::~MySQLConnection()
 {
-	FreePreparedStatements();
-	mysql_close(mMysql);
+	if (mMysql)
+		mysql_close(mMysql);
 }
 
 bool MySQLConnection::Initialize(const std::string& infoString)
@@ -185,6 +185,9 @@ int MySQLConnection::_Connect(MYSQL* mysqlInit)
 		else
 			reconnecting = true;
 	}
+
+	//remove any state from previous session
+	this->clear();
 
 	for(;;)
 	{

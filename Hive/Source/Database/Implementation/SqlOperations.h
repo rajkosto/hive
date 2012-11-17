@@ -20,6 +20,7 @@
 
 #include "Shared/Common/Types.h"
 #include "Database/Callback.h"
+#include "Database/SqlStatement.h"
 
 #include <tbb/concurrent_queue.h>
 
@@ -66,13 +67,13 @@ public:
 class SqlPreparedRequest : public SqlOperation
 {
 public:
-	SqlPreparedRequest(int nIndex, SqlStmtParameters* arg);
+	SqlPreparedRequest(const SqlStatementID& stId, SqlStmtParameters* arg);
 	~SqlPreparedRequest();
 
 	bool Execute(SqlConnection* conn);
 
 private:
-	const int _nIndex;
+	SqlStatementID _id;
 	SqlStmtParameters* _params;
 };
 

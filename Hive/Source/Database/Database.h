@@ -79,7 +79,7 @@ public:
 	//allocate index for prepared statement with SQL request 'fmt'
 	virtual SqlStatement* CreateStatement(SqlStatementID& index, const std::string& fmt) = 0;
 	//get prepared statement format string
-	virtual std::string GetStmtString(const int stmtId) const = 0;
+	virtual std::string GetStmtString(UInt32 stmtId) const = 0;
 
 	virtual operator bool () const = 0;
 

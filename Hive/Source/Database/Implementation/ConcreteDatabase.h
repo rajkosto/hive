@@ -80,7 +80,7 @@ public:
 	//allocate index for prepared statement with SQL request 'fmt'
 	SqlStatement* CreateStatement(SqlStatementID& index, const std::string& fmt) override;
 	//get prepared statement format string
-	std::string GetStmtString(const int stmtId) const override;
+	std::string GetStmtString(UInt32 stmtId) const override;
 
 	operator bool () const override { return (m_pQueryConnections.size() && m_pAsyncConn != 0); }
 
@@ -157,32 +157,37 @@ protected:
 	bool DirectExecuteStmt(const SqlStatementID& id, SqlStmtParameters* params);
 
 	//connection helper counters
-	int m_nQueryConnPoolSize;                               //current size of query connection pool
+	int m_nQueryConnPoolSize;             //current size of query connection pool
 	Poco::AtomicCounter m_nQueryCounter;  //counter for connection selection
 
 	//lets use pool of connections for sync queries
-	typedef std::vector< SqlConnection* > SqlConnectionContainer;
+	typedef std::vector<SqlConnection*> SqlConnectionContainer;
 	SqlConnectionContainer m_pQueryConnections;
 
 	//only one single DB connection for transactions
 	SqlConnection* m_pAsyncConn;
 
-	SqlResultQueue*    m_pResultQueue;                  ///< Transaction queues from diff. threads
-	SqlDelayThread*    m_threadBody;                    ///< Pointer to delay sql executer (owned by m_delayThread)
-	Poco::Thread* m_delayThread;                   ///< Pointer to executer thread
+	SqlResultQueue*	m_pResultQueue;			///< Transaction queues from diff. threads
+	SqlDelayThread*	m_threadBody;			///< Pointer to delay sql executer (owned by m_delayThread)
+	Poco::Thread*	m_delayThread;			///< Pointer to executer thread
 
-	bool m_bAllowAsyncTransactions;                      ///< flag which specifies if async transactions are enabled
+	bool m_bAllowAsyncTransactions;			///< flag which specifies if async transactions are enabled
 
 	//PREPARED STATEMENT REGISTRY
-	typedef Poco::FastMutex LOCK_TYPE;
-	typedef Poco::ScopedLock<LOCK_TYPE> LOCK_GUARD;
+	class PreparedStmtRegistry
+	{
+	public:
+		//find existing or add a new record in registry
+		UInt32 getStmtId(const std::string& fmt);
+		std::string getStmtString(UInt32 stmtId) const;
+	private:
+		typedef Poco::FastMutex RegistryLockType;
+		typedef Poco::ScopedLock<RegistryLockType> RegistryGuardType;
+		mutable RegistryLockType _lock; //guards _map
 
-	mutable LOCK_TYPE m_stmtGuard;
-
-	typedef boost::unordered_map<std::string, int> PreparedStmtRegistry;
-	PreparedStmtRegistry m_stmtRegistry;                 ///<
-
-	int m_iStmtIndex;
+		typedef boost::unordered_map<std::string, UInt32> StatementMap;
+		StatementMap _map;
+	} m_prepStmtRegistry;
 
 	class Poco::Logger* _logger;
 private:

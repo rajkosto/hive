@@ -66,7 +66,7 @@ bool SqlTransaction::Execute(SqlConnection *conn)
 	return conn->CommitTransaction();
 }
 
-SqlPreparedRequest::SqlPreparedRequest(int nIndex, SqlStmtParameters* arg) : _nIndex(nIndex), _params(arg)
+SqlPreparedRequest::SqlPreparedRequest(const SqlStatementID& stId, SqlStmtParameters* arg) : _id(stId), _params(arg)
 {
 }
 
@@ -75,10 +75,10 @@ SqlPreparedRequest::~SqlPreparedRequest()
 	delete _params;
 }
 
-bool SqlPreparedRequest::Execute( SqlConnection *conn )
+bool SqlPreparedRequest::Execute( SqlConnection* conn )
 {
 	SqlConnection::Lock guard(conn);
-	return conn->ExecuteStmt(_nIndex, *_params);
+	return conn->ExecuteStmt(_id, *_params);
 }
 
 /// ---- ASYNC QUERIES ----

@@ -26,6 +26,7 @@ class Database;
 class QueryResult;
 class QueryNamedResult;
 class SqlPreparedStatement;
+class SqlStatementID;
 class SqlStmtParameters;
 
 //
@@ -53,7 +54,7 @@ public:
 	virtual bool RollbackTransaction();
 
 	//methods to work with prepared statements
-	bool ExecuteStmt(int nIndex, const SqlStmtParameters& id);
+	bool ExecuteStmt(const SqlStatementID& stId, const SqlStmtParameters& id);
 
 	//SqlConnection object lock
 	class Lock
@@ -75,18 +76,31 @@ protected:
 	SqlConnection(Database& db) : m_db(db) {}
 
 	virtual SqlPreparedStatement* CreateStatement(const std::string& fmt);
-	//allocate prepared statement and return statement ID
-	SqlPreparedStatement* GetStmt(int nIndex);
+	//allocate and return prepared statement object
+	SqlPreparedStatement* GetStmt(const SqlStatementID& stId);
 
 	Database& m_db;
 
-	//free prepared statements objects
-	void FreePreparedStatements();
+	//clear any state (because of reconnects, etc)
+	virtual void clear();
 
 private:
-	typedef Poco::Mutex LOCK_TYPE;
-	LOCK_TYPE m_mutex;
+	typedef Poco::FastMutex ConnLockType;
+	ConnLockType m_mutex;
 
-	typedef std::vector<SqlPreparedStatement* > StmtHolder;
-	StmtHolder m_holder;
+	class StmtHolder
+	{
+	public:
+		StmtHolder() {}
+		~StmtHolder() { clear(); }
+
+		//remove all statements
+		void clear();
+
+		SqlPreparedStatement* getPrepStmtObj(UInt32 stmtId) const;
+		void insertPrepStmtObj(UInt32 stmtId, SqlPreparedStatement* stmtObj);
+	private:
+		typedef boost::unordered_map<UInt32,SqlPreparedStatement*> StatementObjMap;
+		StatementObjMap _map;
+	} m_stmtHolder;
 };

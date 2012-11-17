@@ -183,7 +183,7 @@ public:
 	typedef std::vector<SqlStmtFieldData> ParameterContainer;
 
 	//reserve memory to contain all input parameters of stmt
-	explicit SqlStmtParameters(int nParams)
+	explicit SqlStmtParameters(size_t nParams)
 	{
 		//reserve memory if needed
 		if(nParams > 0)
@@ -195,9 +195,9 @@ public:
 	}
 
 	//get amount of bound parameters
-	int boundParams() const 
+	size_t boundParams() const 
 	{
-		return int(m_params.size());
+		return m_params.size();
 	}
 	//add parameter
 	void addParam(const SqlStmtFieldData& data) 
@@ -206,7 +206,7 @@ public:
 	}
 	//empty SQL statement parameters. In case nParams > 1 - reserve memory for parameters
 	//should help to reuse the same object with batched SQL requests
-	void reset( int numArguments = 0 )
+	void reset( size_t numArguments = 0 )
 	{
 		m_params.clear();
 		//reserve memory if needed
@@ -235,19 +235,17 @@ private:
 class SqlStatementID
 {
 public:
-	SqlStatementID() : m_bInitialized(false) {}
+	SqlStatementID() : _id(0), _numArgs(0) {}
 
-	int ID() const { return m_nIndex; }
-	int arguments() const { return m_nArguments; }
-	bool initialized() const { return m_bInitialized; }
-
+	UInt32 getId() const { return _id; }
+	size_t numArgs() const { return _numArgs; }
+	bool isInitialized() const { return (_id != 0); }
 private:
 	friend class ConcreteDatabase;
-	void init(int nID, int nArgs) { m_nIndex = nID; m_nArguments = nArgs; m_bInitialized = true; }
+	void init(UInt32 id, size_t nArgs) { _id = id; _numArgs = nArgs; }
 
-	int m_nIndex;
-	int m_nArguments;
-	bool m_bInitialized;
+	UInt32 _id;
+	size_t _numArgs;
 };
 
 //statement index
@@ -256,8 +254,8 @@ class SqlStatement
 public:
 	virtual ~SqlStatement() { delete m_pParams; }
 
-	int ID() const { return m_index.ID(); }
-	int arguments() const { return m_index.arguments(); }
+	UInt32 getId() const { return m_index.getId(); }
+	size_t numArgs() const { return m_index.numArgs(); }
 
 	virtual bool Execute() = 0;
 	virtual bool DirectExecute() = 0;
@@ -330,7 +328,7 @@ private:
 	SqlStmtParameters* get()
 	{
 		if(!m_pParams)
-			m_pParams = new SqlStmtParameters(arguments());
+			m_pParams = new SqlStmtParameters(numArgs());
 
 		return m_pParams;
 	}

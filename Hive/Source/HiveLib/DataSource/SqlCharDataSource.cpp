@@ -44,8 +44,7 @@ Sqf::Value SqlCharDataSource::fetchCharacterInitial( string playerId, int server
 			//update player name if not current
 			if (fields[0].GetCppString() != playerName)
 			{
-				static SqlStatementID stmtId;
-				scoped_ptr<SqlStatement> stmt(getDB()->CreateStatement(stmtId, "UPDATE `Player_DATA` SET `PlayerName`=? WHERE `"+_idFieldName+"`=?"));
+				scoped_ptr<SqlStatement> stmt(getDB()->CreateStatement(_stmtChangePlayerName, "UPDATE `Player_DATA` SET `PlayerName`=? WHERE `"+_idFieldName+"`=?"));
 				stmt->addString(playerName);
 				stmt->addString(playerId);
 				bool exRes = stmt->Execute();
@@ -57,8 +56,7 @@ Sqf::Value SqlCharDataSource::fetchCharacterInitial( string playerId, int server
 		{
 			newPlayer = true;
 			//insert new player into db
-			static SqlStatementID stmtId;
-			scoped_ptr<SqlStatement> stmt(getDB()->CreateStatement(stmtId, "INSERT INTO `Player_DATA` (`"+_idFieldName+"`, `PlayerName`) VALUES (?, ?)"));
+			scoped_ptr<SqlStatement> stmt(getDB()->CreateStatement(_stmtInsertPlayer, "INSERT INTO `Player_DATA` (`"+_idFieldName+"`, `PlayerName`) VALUES (?, ?)"));
 			stmt->addString(playerId);
 			stmt->addString(playerName);
 			bool exRes = stmt->Execute();
@@ -137,8 +135,7 @@ Sqf::Value SqlCharDataSource::fetchCharacterInitial( string playerId, int server
 		//update last login
 		{
 			//update last character login
-			static SqlStatementID stmtId;
-			scoped_ptr<SqlStatement> stmt(getDB()->CreateStatement(stmtId, "UPDATE `Character_DATA` SET `LastLogin` = CURRENT_TIMESTAMP WHERE `CharacterID` = ?"));
+			scoped_ptr<SqlStatement> stmt(getDB()->CreateStatement(_stmtUpdateCharacterLastLogin, "UPDATE `Character_DATA` SET `LastLogin` = CURRENT_TIMESTAMP WHERE `CharacterID` = ?"));
 			stmt->addInt32(characterId);
 			bool exRes = stmt->Execute();
 			poco_assert(exRes == true);
@@ -158,9 +155,8 @@ Sqf::Value SqlCharDataSource::fetchCharacterInitial( string playerId, int server
 			{
 				Field* fields = prevCharRes->Fetch();
 				generation = fields[0].GetInt32();
-#ifdef INCREASE_GENERATION
-				generation++; //MY METAL BOY
-#endif
+				generation++; //apparently this was the correct behaviour all along
+
 				humanity = fields[1].GetInt32();
 				try
 				{
@@ -175,9 +171,7 @@ Sqf::Value SqlCharDataSource::fetchCharacterInitial( string playerId, int server
 		Sqf::Value medical = Sqf::Parameters(); //script will fill this in if empty
 		//insert new char into db
 		{
-			//update last character login
-			static SqlStatementID stmtId;
-			scoped_ptr<SqlStatement> stmt(getDB()->CreateStatement(stmtId, 
+			scoped_ptr<SqlStatement> stmt(getDB()->CreateStatement(_stmtInsertNewCharacter, 
 				"INSERT INTO `Character_DATA` (`"+_idFieldName+"`, `InstanceID`, `"+_wsFieldName+"`, `Inventory`, `Backpack`, `Medical`, `Generation`, `Datestamp`, `LastLogin`, `LastAte`, `LastDrank`, `Humanity`) "
 				"VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)"));
 			stmt->addString(playerId);
@@ -372,8 +366,7 @@ bool SqlCharDataSource::updateCharacter( int characterId, const FieldsType& fiel
 
 bool SqlCharDataSource::initCharacter( int characterId, const Sqf::Value& inventory, const Sqf::Value& backpack )
 {
-	static SqlStatementID stmtId;
-	scoped_ptr<SqlStatement> stmt(getDB()->CreateStatement(stmtId, "UPDATE `Character_DATA` SET `Inventory` = ? , `Backpack` = ? WHERE `CharacterID` = ?"));
+	scoped_ptr<SqlStatement> stmt(getDB()->CreateStatement(_stmtInitCharacter, "UPDATE `Character_DATA` SET `Inventory` = ? , `Backpack` = ? WHERE `CharacterID` = ?"));
 	stmt->addString(lexical_cast<string>(inventory));
 	stmt->addString(lexical_cast<string>(backpack));
 	stmt->addInt32(characterId);
@@ -385,8 +378,7 @@ bool SqlCharDataSource::initCharacter( int characterId, const Sqf::Value& invent
 
 bool SqlCharDataSource::killCharacter( int characterId, int duration )
 {
-	static SqlStatementID stmtId;
-	scoped_ptr<SqlStatement> stmt(getDB()->CreateStatement(stmtId, 
+	scoped_ptr<SqlStatement> stmt(getDB()->CreateStatement(_stmtKillCharacter, 
 		"UPDATE `Character_DATA` SET `Alive` = 0, `LastLogin` = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL ? MINUTE) WHERE `CharacterID` = ? AND `Alive` = 1"));
 	stmt->addInt32(duration);
 	stmt->addInt32(characterId);
@@ -398,8 +390,8 @@ bool SqlCharDataSource::killCharacter( int characterId, int duration )
 
 bool SqlCharDataSource::recordLogin( string playerId, int characterId, int action )
 {
-	static SqlStatementID stmtId;
-	scoped_ptr<SqlStatement> stmt(getDB()->CreateStatement(stmtId, 
+	
+	scoped_ptr<SqlStatement> stmt(getDB()->CreateStatement(_stmtRecordLogin, 
 		"INSERT INTO `Player_LOGIN` (`"+_idFieldName+"`, `CharacterID`, `Datestamp`, `Action`) VALUES (?, ?, CURRENT_TIMESTAMP, ?)"));
 	stmt->addString(playerId);
 	stmt->addInt32(characterId);
