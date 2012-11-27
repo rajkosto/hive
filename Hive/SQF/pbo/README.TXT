@@ -1,1 +1,0 @@
-Prepackaged versions of the modified dayz_server are located in folders here, each for it's respective version
