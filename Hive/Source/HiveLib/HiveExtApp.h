@@ -46,7 +46,6 @@ protected:
 
 	static Sqf::Parameters booleanReturn(bool isGood);
 
-	Poco::Logger& _logger;
 	unique_ptr<CharDataSource> _charData;
 	unique_ptr<ObjDataSource> _objData;
 private:

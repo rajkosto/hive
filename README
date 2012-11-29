@@ -12,7 +12,9 @@ Because of their size, they aren't directly included into the project tree
 
 Get poco from http://pocoproject.org/download/index.html (basic edition is sufficient)
 It must be extracted into Dependencies10/poco folder, such that the folder structure matches the one in INSTRUCTIONS.TXT
-After extracting, create a Visual Studio 2010 Command prompt, and invoke build_vs100.bat from it
+After extracting, edit build_vs100.bat with a text editor, and replace the word "shared" in the last line with "all"
+Optionally, you can also replace the word "samples" with "nosamples" for faster builds
+After that, create a Visual Studio 2010 Command prompt, and invoke build_vs100.bat from it
 
 Get tbb from http://threadingbuildingblocks.org/download.php
 It is recommended to get the precompiled binaries for windows of the latest stable release
@@ -38,16 +40,17 @@ the x_tables.sql files will create the tables, while the obj_sample_data.sql has
 If you are already running some similar db layout, MAKE SURE to read the ENTIRETY of HiveExt.ini (especially the one about the Objects table name, and the PlayerID column)
 to be certain that the parameters inside match what you are currently running as the database.
 
-If you are going to use the "Reset OOB Vehicles" feature in HiveExt.dll, make sure to replace the dayz_server.pbo file under @hive/AddOns with the appropriate
-version you can find in the SQF/pbo folder.
-
 Final:
 
-This project was started as a better alternative to the "official" hive access dll for DayZ, however, after it's been obvious that it would never actually be picked up
-or integrated into the project in any way, and that the most popular usage of it was running "private" or "local" servers for the game, I might as well remove all
-the restrictions and certificate systems that were in place, and just let it connect to whatever server you want.
-That means that YOU CAN use it to connect to the official servers, all you need is the correct Username and Password to put into the configuration file.
-Please don't ask me for this information, as exposing it would make the DayZ servers even MORE vulnerable to server admin abuse.
+This project was started as a better alternative to the "official" Hive access library for DayZ,
+however, since my request for making it the official Hive access dll was denied (at the time),
+and that the most popular usage of it was running "private" or "local" servers for the game, 
+I have removed all the restrictions and certificate systems that were in place, so that it can connect to any server you want.
+
+Recently, after the founding of the DayZMod community that currently maintains DayZMod, this project DID become the official Hive access library.
+Just compiling the source code isn't enough to connect to the public hive database though, for that, use the libraries distributed with the official server files themselves
+Or, download a "blessed" version from the downloads page (blessed version is identical to the open source one, except that it can connect to the public hive by default)
+You can (and it's preferred) to use the precompiled "blessed" version for connecting to your private hive as well, to save you from having to compile it yourself.
 
 Hive access library by Rajko Stojadinovic (https://github.com/rajkosto)
 If you would be so kind, and are satisfied with what this thing does, maybe send a donation my way to payment@rajko.info

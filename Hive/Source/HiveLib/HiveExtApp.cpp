@@ -50,19 +50,19 @@ void HiveExtApp::setupClock()
 
 int HiveExtApp::main( const std::vector<std::string>& args )
 {
-	_logger.information("HiveExt " + GIT_VERSION.substr(0,12));
+	logger().information("HiveExt " + GIT_VERSION.substr(0,12));
 	setupClock();
 
 	if (!this->initialiseService())
 	{
-		_logger.close();
+		logger().close();
 		return EXIT_IOERR;
 	}
 
 	return EXIT_OK;
 }
 
-HiveExtApp::HiveExtApp(string suffixDir) : AppServer("HiveExt",suffixDir), _serverId(-1), _logger(Poco::Logger::get(""))
+HiveExtApp::HiveExtApp(string suffixDir) : AppServer("HiveExt",suffixDir), _serverId(-1)
 {
 	//server and object stuff
 	handlers[302] = boost::bind(&HiveExtApp::streamObjects,this,_1);
@@ -97,7 +97,7 @@ void HiveExtApp::callExtension( const char* function, char* output, size_t outpu
 	}
 	catch(bad_lexical_cast)
 	{
-		_logger.error("Cannot parse function: " + string(function));
+		logger().error("Cannot parse function: " + string(function));
 		return;
 	}
 
@@ -114,20 +114,20 @@ void HiveExtApp::callExtension( const char* function, char* output, size_t outpu
 	}
 	catch (...)
 	{
-		_logger.error("Invalid function format: " + string(function));
+		logger().error("Invalid function format: " + string(function));
 		return;
 	}
 
 	if (handlers.count(funcNum) < 1)
 	{
-		_logger.error("Invalid method id: " + lexical_cast<string>(funcNum));
+		logger().error("Invalid method id: " + lexical_cast<string>(funcNum));
 		return;
 	}
 
-	if (_logger.debug())
-		_logger.debug("Original params: |" + string(function) + "|");
+	if (logger().debug())
+		logger().debug("Original params: |" + string(function) + "|");
 
-	_logger.information("Method: " + lexical_cast<string>(funcNum) + " Params: " + lexical_cast<string>(params));
+	logger().information("Method: " + lexical_cast<string>(funcNum) + " Params: " + lexical_cast<string>(params));
 	HandlerFunc handler = handlers[funcNum];
 	Sqf::Value res;
 	try
@@ -136,18 +136,18 @@ void HiveExtApp::callExtension( const char* function, char* output, size_t outpu
 	}
 	catch (...)
 	{
-		_logger.error("Error executing |" + string(function) + "|");
+		logger().error("Error executing |" + string(function) + "|");
 		return;
 	}		
 
 	string serializedRes = lexical_cast<string>(res);
 	if (serializedRes.length() >= outputSize)
 	{
-		_logger.error("Output size too big ("+lexical_cast<string>(serializedRes.length())+") for request : " + string(function));
+		logger().error("Output size too big ("+lexical_cast<string>(serializedRes.length())+") for request : " + string(function));
 		return;
 	}
 
-	_logger.information("Result: " + serializedRes);		
+	logger().information("Result: " + serializedRes);		
 	strncpy_s(output,outputSize,serializedRes.c_str(),outputSize-1);
 }
 
@@ -334,7 +334,7 @@ Sqf::Value HiveExtApp::playerUpdate( Sqf::Parameters params )
 				{
 					if (Sqf::IsAny(medicalArr[i]))
 					{
-						_logger.warning("update.medical["+lexical_cast<string>(i)+"] changed from any to []");
+						logger().warning("update.medical["+lexical_cast<string>(i)+"] changed from any to []");
 						medicalArr[i] = Sqf::Parameters();
 					}
 				}
@@ -404,7 +404,7 @@ Sqf::Value HiveExtApp::playerUpdate( Sqf::Parameters params )
 	}
 	catch (const std::out_of_range&)
 	{
-		_logger.warning("Update of character " + lexical_cast<string>(characterId) + " only had " + lexical_cast<string>(params.size()) + " parameters out of 16");
+		logger().warning("Update of character " + lexical_cast<string>(characterId) + " only had " + lexical_cast<string>(params.size()) + " parameters out of 16");
 	}
 
 	if (fields.size() > 0)

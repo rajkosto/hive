@@ -47,7 +47,7 @@ bool DirectHiveApp::initialiseService()
 		static const string defaultWS = "Worldspace";
 
 		Poco::AutoPtr<Poco::Util::AbstractConfiguration> charDBConf(config().createView("Characters"));
-		_charData.reset(new SqlCharDataSource(_logger,_charDb,charDBConf->getString("IDField",defaultID),charDBConf->getString("WSField",defaultWS)));	
+		_charData.reset(new SqlCharDataSource(logger(),_charDb,charDBConf->getString("IDField",defaultID),charDBConf->getString("WSField",defaultWS)));	
 	}
 
 	Poco::AutoPtr<Poco::Util::AbstractConfiguration> objDBConf(config().createView("ObjectDB"));
@@ -72,7 +72,7 @@ bool DirectHiveApp::initialiseService()
 	}
 	
 	Poco::AutoPtr<Poco::Util::AbstractConfiguration> objConf(config().createView("Objects"));
-	_objData.reset(new SqlObjDataSource(_logger,_objDb,objConf.get()));
+	_objData.reset(new SqlObjDataSource(logger(),_objDb,objConf.get()));
 	
 	return true;
 }

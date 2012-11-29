@@ -18,21 +18,33 @@
 
 #pragma once
 
-#include "Shared/Common/Types.h"
-#include <Poco/Util/ServerApplication.h>
+#include "Poco/Foundation.h"
+#include "Poco/Channel.h"
+#include "Poco/Mutex.h"
 
-class AppServer: public Poco::Util::ServerApplication
+#include <boost/optional.hpp>
+
+class CustomLevelChannel: public Poco::Channel
 {
 public:
-	AppServer(std::string appName = "", std::string suffixDir = "") : appName(appName), appDir(suffixDir) {}
-	std::string getAppDir() { return appDir; }
-	void enableAsyncLogging();
+	CustomLevelChannel() {};
+
+	void overrideLevel(int newLevel) { _level = newLevel; }
+	void removeLevelOverride() { _level.reset(); }
 protected:
-	void initialize(Application& self) override;
-	void uninitialize() override;
+	bool shouldLog(int theLevel) const
+	{
+		if (!_level.is_initialized())
+			return true;
+
+		if (theLevel <= _level.get())
+			return true;
+
+		return false;
+	}
+
+	~CustomLevelChannel() {};
 private:
-	void initConfig();
-	void initLogger();
-	std::string appName;
-	std::string appDir;
+	boost::optional<int> _level;
 };
+

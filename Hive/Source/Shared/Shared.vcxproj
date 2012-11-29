@@ -21,12 +21,17 @@
     <ClInclude Include="Library\Database\DatabaseLoader.h" />
     <ClInclude Include="Library\SharedLibraryLoader.h" />
     <ClInclude Include="Server\AppServer.h" />
+    <ClInclude Include="Server\Log\ArmaConsoleChannel.h" />
+    <ClInclude Include="Server\Log\CustomLevelChannel.h" />
+    <ClInclude Include="Server\Log\HiveConsoleChannel.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Common\Timer.cpp" />
     <ClCompile Include="Library\Database\DatabaseLoader.cpp" />
     <ClCompile Include="Policy\Allocator.cpp" />
     <ClCompile Include="Server\AppServer.cpp" />
+    <ClCompile Include="Server\Log\ArmaConsoleChannel.cpp" />
+    <ClCompile Include="Server\Log\HiveConsoleChannel.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{92C57338-E848-422B-8E81-6F6D11671750}</ProjectGuid>
@@ -53,12 +58,14 @@
     <Import Project="..\StaticLib.Debug.props" />
     <Import Project="..\Poco.props" />
     <Import Project="..\TBB.props" />
+    <Import Project="..\Detours.props" />
   </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
     <Import Project="..\StaticLib.Release.props" />
     <Import Project="..\Poco.props" />
     <Import Project="..\TBB.props" />
+    <Import Project="..\Detours.props" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" />
@@ -79,10 +86,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
     <BuildLog />
-    <Lib>
-      <AdditionalDependencies>
-      </AdditionalDependencies>
-    </Lib>
+    <Lib />
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -103,10 +107,7 @@
       <OptimizeReferences>true</OptimizeReferences>
     </Link>
     <BuildLog />
-    <Lib>
-      <AdditionalDependencies>
-      </AdditionalDependencies>
-    </Lib>
+    <Lib />
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

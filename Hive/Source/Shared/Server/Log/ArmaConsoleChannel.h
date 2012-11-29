@@ -18,21 +18,17 @@
 
 #pragma once
 
-#include "Shared/Common/Types.h"
-#include <Poco/Util/ServerApplication.h>
+#include "CustomLevelChannel.h"
+#include "Poco/UnWindows.h"
 
-class AppServer: public Poco::Util::ServerApplication
+class ArmaConsoleChannel: public CustomLevelChannel
 {
 public:
-	AppServer(std::string appName = "", std::string suffixDir = "") : appName(appName), appDir(suffixDir) {}
-	std::string getAppDir() { return appDir; }
-	void enableAsyncLogging();
+	ArmaConsoleChannel();
+	void log(const Poco::Message& msg);
 protected:
-	void initialize(Application& self) override;
-	void uninitialize() override;
+	~ArmaConsoleChannel();
 private:
-	void initConfig();
-	void initLogger();
-	std::string appName;
-	std::string appDir;
+	HWND _wndRich;
 };
+

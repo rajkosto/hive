@@ -37,12 +37,7 @@ BOOL APIENTRY DllMain( HMODULE hModule, DWORD  ul_reason_for_call, LPVOID lpRese
 	return TRUE;
 }
 
-int CALLBACK WinMain(
-	__in  HINSTANCE hInstance,
-	__in  HINSTANCE hPrevInstance,
-	__in  LPSTR lpCmdLine,
-	__in  int nCmdShow
-	)
+int main()
 {
 	Sqf::runTest();
 

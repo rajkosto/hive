@@ -18,21 +18,18 @@
 
 #pragma once
 
-#include "Shared/Common/Types.h"
-#include <Poco/Util/ServerApplication.h>
+#include "CustomLevelChannel.h"
+#include "Poco/UnWindows.h"
 
-class AppServer: public Poco::Util::ServerApplication
+class HiveConsoleChannel: public CustomLevelChannel
 {
 public:
-	AppServer(std::string appName = "", std::string suffixDir = "") : appName(appName), appDir(suffixDir) {}
-	std::string getAppDir() { return appDir; }
-	void enableAsyncLogging();
+	HiveConsoleChannel(std::string windowTitle = "");
+
+	void log(const Poco::Message& msg);
 protected:
-	void initialize(Application& self) override;
-	void uninitialize() override;
+	~HiveConsoleChannel();
 private:
-	void initConfig();
-	void initLogger();
-	std::string appName;
-	std::string appDir;
+	HANDLE _hConsole;
 };
+

@@ -16,6 +16,9 @@
     <Filter Include="Library\Database">
       <UniqueIdentifier>{8cb2e685-e396-4ed8-add3-2d37c626b6ef}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Server\Log">
+      <UniqueIdentifier>{1894bce0-0f3a-4fae-8120-1b5a065b79d1}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Common\Types.h">
@@ -48,6 +51,15 @@
     <ClInclude Include="Common\SingletonImpl.h">
       <Filter>Common</Filter>
     </ClInclude>
+    <ClInclude Include="Server\Log\ArmaConsoleChannel.h">
+      <Filter>Server\Log</Filter>
+    </ClInclude>
+    <ClInclude Include="Server\Log\CustomLevelChannel.h">
+      <Filter>Server\Log</Filter>
+    </ClInclude>
+    <ClInclude Include="Server\Log\HiveConsoleChannel.h">
+      <Filter>Server\Log</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Policy\Allocator.cpp">
@@ -61,6 +73,12 @@
     </ClCompile>
     <ClCompile Include="Server\AppServer.cpp">
       <Filter>Server</Filter>
+    </ClCompile>
+    <ClCompile Include="Server\Log\ArmaConsoleChannel.cpp">
+      <Filter>Server\Log</Filter>
+    </ClCompile>
+    <ClCompile Include="Server\Log\HiveConsoleChannel.cpp">
+      <Filter>Server\Log</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>
