@@ -24,14 +24,13 @@
 #include <Poco/ThreadLocal.h>
 
 #include <boost/unordered_map.hpp>
+#include <boost/ptr_container/ptr_vector.hpp>
 
 #include "Database/Database.h"
 #include "Database/SqlStatement.h"
 #include "SqlDelayThread.h"
+#include "SqlOperations.h"
 
-class SqlTransaction;
-class SqlResultQueue;
-class SqlStmtParameters;
 class SqlParamBinder;
 
 class ConcreteDatabase : public Database
@@ -39,159 +38,169 @@ class ConcreteDatabase : public Database
 public:
 	virtual ~ConcreteDatabase();
 
-	bool Initialize(class Poco::Logger& dbLogger, const std::string& infoString, bool logSql, const std::string& logDir, int maxPingTime, int nConns) override;
-	//start worker thread for async DB request execution
-	void InitDelayThread() override;
-	//stop worker thread
-	void HaltDelayThread() override;
+	bool initialise(Poco::Logger& dbLogger, const std::string& infoString, bool logSql, const std::string& logDir, size_t nConns) override;
+	
+	void initDelayThread() override;
+	void haltDelayThread() override;
 
-	//Logging
-	Poco::Logger& CreateLogger(const std::string& subName) override;
-	void SetLoggerLevel(int newLevel) override;
+	Poco::Logger& getLogger() { return *_logger; }
 
-	/// Synchronous DB queries
-	QueryResult* Query(const char* sql) override;
+	unique_ptr<QueryResult> query(const char* sql) override;
+	unique_ptr<QueryNamedResult> namedQuery(const char* sql) override;
 
-	QueryNamedResult* QueryNamed(const char* sql) override;
+	unique_ptr<QueryResult> queryParams(const char* format,...) override;
+	unique_ptr<QueryNamedResult> namedQueryParams(const char* format,...) override;
 
-	QueryResult* PQuery(const char* format,...) override;
-	QueryNamedResult* PQueryNamed(const char* format,...) override;
+	bool directExecute(const char* sql) override;
+	bool directExecuteParams(const char* format,...) override;
 
-	bool DirectExecute(const char* sql) override;
-	bool DirectPExecute(const char* format,...) override;
+	bool execute(const char* sql) override;
+	bool executeParams(const char* format,...) override;
 
-	bool Execute(const char* sql) override;
-	bool PExecute(const char* format,...) override;
+	bool asyncQuery(QueryCallback::FuncType func, const char* sql) override;
+	bool asyncQueryParams(QueryCallback::FuncType func, const char* format, ...) override;
 
-	bool AsyncQuery(QueryCallback::FuncType func, const char* sql) override;
-	bool AsyncPQuery(QueryCallback::FuncType func, const char* format, ...) override;
+	bool executeParamsLog(const char* format,...) override;
 
-	// Writes SQL commands to a LOG file
-	bool PExecuteLog(const char* format,...) override;
+	bool transactionStart() override;
+	bool transactionCommit() override;
+	bool transactionRollback() override;
+	bool transactionCommitDirect() override;
 
-	bool BeginTransaction() override;
-	bool CommitTransaction() override;
-	bool RollbackTransaction() override;
-	//for sync transaction execution
-	bool CommitTransactionDirect() override;
+	unique_ptr<SqlStatement> makeStatement(SqlStatementID& index, std::string sqlText) override;
+	const char* getStmtString(UInt32 stmtId) const;
 
-	//PREPARED STATEMENT API
+	operator bool () const override { return (_queryConns.size() && _asyncConn); }
 
-	//allocate index for prepared statement with SQL request 'fmt'
-	SqlStatement* CreateStatement(SqlStatementID& index, const std::string& fmt) override;
-	//get prepared statement format string
-	std::string GetStmtString(UInt32 stmtId) const override;
+	std::string escape(const std::string& str) const override;
 
-	operator bool () const override { return (m_pQueryConnections.size() && m_pAsyncConn != 0); }
+	void threadEnter() override;
+	void threadExit() override;
 
-	//escape string generation
-	std::string escape_string(std::string str) override;
+	void invokeCallbacks() override;
 
-	// must be called before first query in thread (one time for thread using one from existing Database objects)
-	void ThreadStart() override;
-	// must be called before finish thread run (one time for thread using one from existing Database objects)
-	void ThreadEnd() override;
+	bool checkConnections() override;
 
-	// set database-wide result queue. also we should use object-bases and not thread-based result queues
-	void ProcessResultQueue() override;
-
-	UInt32 GetPingInterval() const override { return m_pingIntervallms; }
-
-	//function to ping database connections
-	void Ping() override;
-
-	//set this to allow async transactions
-	//you should call it explicitly after your server successfully started up
-	//NO ASYNC TRANSACTIONS DURING SERVER STARTUP - ONLY DURING RUNTIME!!!
-	void AllowAsyncTransactions() override { m_bAllowAsyncTransactions = true; }
-
+	//Call this once you're out of global constructor code/DLLMain
+	void allowAsyncOperations() override { _asyncAllowed = true; }
 protected:
 	ConcreteDatabase();
 
-	bool CheckFmtError(int res, const char* format) const;
-	bool DoDelay(const char* sql, QueryCallback callback);
+	bool checkFmtError(int res, const char* format) const;
+	bool doDelay(const char* sql, QueryCallback callback);
 
-	void StopServer();
+	void stopServer();
 
 	//factory method to create SqlConnection objects
-	virtual SqlConnection* CreateConnection() = 0;
+	virtual unique_ptr<SqlConnection> createConnection(const std::string& infoString) = 0;
 	//factory method to create SqlDelayThread objects
-	virtual SqlDelayThread* CreateDelayThread();
+	virtual unique_ptr<SqlDelayThread> createDelayThread();
 
 	class TransHelper
 	{
 	public:
-		TransHelper() : m_pTrans(NULL) {}
-		~TransHelper();
+		TransHelper() : _trans(nullptr) {}
+		~TransHelper() {}
 
 		//initializes new SqlTransaction object
 		SqlTransaction* init();
 		//gets pointer on current transaction object. Returns NULL if transaction was not initiated
-		SqlTransaction* get() const { return m_pTrans; }
+		SqlTransaction* get() const { return _trans.get(); }
 		//detaches SqlTransaction object allocated by init() function
 		//next call to get() function will return NULL!
 		//do not forget to destroy obtained SqlTransaction object!
-		SqlTransaction* detach();
-		//destroyes SqlTransaction allocated by init() function
-		void reset();
+		SqlTransaction* detach() { return _trans.release(); }
+		//destroys SqlTransaction allocated by init() function
+		void reset() { _trans.reset(); }
 
 	private:
-		SqlTransaction * m_pTrans;
+		unique_ptr<SqlTransaction> _trans;
 	};
 
 	//per-thread based storage for SqlTransaction object initialization - no locking is required
 	typedef Poco::ThreadLocal<TransHelper> DBTransHelperTSS;
-	DBTransHelperTSS m_TransStorage;
+	DBTransHelperTSS _transStorage;
 
-	///< DB connections
+	//DB connections
 
 	//round-robin connection selection
-	SqlConnection* getQueryConnection();
+	SqlConnection& getQueryConnection();
 	//for now return one single connection for async requests
-	SqlConnection* getAsyncConnection() const { return m_pAsyncConn; }
+	SqlConnection& getAsyncConnection();
 
 	friend class SqlStatementImpl;
 	//PREPARED STATEMENT API
 	//query function for prepared statements
-	bool ExecuteStmt(const SqlStatementID& id, SqlStmtParameters* params);
-	bool DirectExecuteStmt(const SqlStatementID& id, SqlStmtParameters* params);
+	bool executeStmt(const SqlStatementID& id, SqlStmtParameters& params);
+	bool directExecuteStmt(const SqlStatementID& id, SqlStmtParameters& params);
 
 	//connection helper counters
-	int m_nQueryConnPoolSize;             //current size of query connection pool
-	Poco::AtomicCounter m_nQueryCounter;  //counter for connection selection
+	Poco::AtomicCounter _currConn;  //counter for connection selection
 
-	//lets use pool of connections for sync queries
-	typedef std::vector<SqlConnection*> SqlConnectionContainer;
-	SqlConnectionContainer m_pQueryConnections;
+	//pool of connections for general queries
+	typedef boost::ptr_vector<SqlConnection> SqlConnectionContainer;
+	SqlConnectionContainer _queryConns;
 
 	//only one single DB connection for transactions
-	SqlConnection* m_pAsyncConn;
+	unique_ptr<SqlConnection> _asyncConn;
 
-	SqlResultQueue*	m_pResultQueue;			///< Transaction queues from diff. threads
-	SqlDelayThread*	m_threadBody;			///< Pointer to delay sql executer (owned by m_delayThread)
-	Poco::Thread*	m_delayThread;			///< Pointer to executer thread
+	//Transaction queues from diff. threads
+	SqlResultQueue _resultQueue;
 
-	bool m_bAllowAsyncTransactions;			///< flag which specifies if async transactions are enabled
+	class DelayThreadRunnable : public Poco::Thread
+	{
+	public:
+		DelayThreadRunnable(unique_ptr<SqlDelayThread> body) 
+			: Poco::Thread("SQL Delay Thread"), _body(std::move(body)) {} 
+		void start() { Poco::Thread::start(*_body); }
+		void stop() 
+		{
+			_body->stop();			//send stop signal
+			Poco::Thread::join();	//wait for thread to finish
+		}
+		bool queueOperation(SqlOperation* sql) { return _body->queueOperation(sql); }
+	private:
+		unique_ptr<SqlDelayThread> _body;
+	};
+	unique_ptr<DelayThreadRunnable>	_delayRunner;
+
+	//To prevent threading before they work properly
+	bool _asyncAllowed;
 
 	//PREPARED STATEMENT REGISTRY
 	class PreparedStmtRegistry
 	{
 	public:
+		PreparedStmtRegistry() : _nextId(0) {}
+
+		//manually insert a new record
+		void insertStmt(UInt32 theId, std::string fmt);
 		//find existing or add a new record in registry
-		UInt32 getStmtId(const std::string& fmt);
-		std::string getStmtString(UInt32 stmtId) const;
+		UInt32 getStmtId(std::string fmt);
+		//get sql for id
+		const char* getStmtString(UInt32 stmtId) const;
+		//is id defined ?
+		bool idDefined(UInt32 theId) const { return (_idMap.count(theId) > 0); }
 	private:
+		void _insertStmt(UInt32 theId, std::string fmt);
+
 		typedef Poco::FastMutex RegistryLockType;
 		typedef Poco::ScopedLock<RegistryLockType> RegistryGuardType;
 		mutable RegistryLockType _lock; //guards _map
 
 		typedef boost::unordered_map<std::string, UInt32> StatementMap;
-		StatementMap _map;
-	} m_prepStmtRegistry;
+		StatementMap _stringMap;
+		typedef std::map<UInt32,const char*> IdMap;
+		IdMap _idMap;
 
-	class Poco::Logger* _logger;
+		UInt32 _nextId;
+	} _prepStmtRegistry;
+
+	Poco::Logger* _logger;
 private:
-	bool m_logSQL;
-	std::string m_logsDir;
-	UInt32 m_pingIntervallms;
+	ConcreteDatabase(const ConcreteDatabase&);
+	ConcreteDatabase& operator = (const ConcreteDatabase&);
+
+	bool _shouldLogSQL;
+	std::string _sqlLogsDir;
 };

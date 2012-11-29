@@ -4,14 +4,12 @@
     <ClInclude Include="Database.h" />
     <ClInclude Include="Field.h" />
     <ClInclude Include="QueryResult.h" />
+    <ClInclude Include="Callback.h" />
     <ClInclude Include="SqlStatement.h" />
     <ClInclude Include="Implementation\ConcreteDatabase.h">
       <Filter>Implementation</Filter>
     </ClInclude>
     <ClInclude Include="Implementation\DatabaseMysql.h">
-      <Filter>Implementation</Filter>
-    </ClInclude>
-    <ClInclude Include="Implementation\MySQLDelayThread.h">
       <Filter>Implementation</Filter>
     </ClInclude>
     <ClInclude Include="Implementation\QueryResultMysql.h">
@@ -32,8 +30,13 @@
     <ClInclude Include="Implementation\SqlStatementImpl.h">
       <Filter>Implementation</Filter>
     </ClInclude>
-    <ClInclude Include="Callback.h" />
     <ClInclude Include="resource.h" />
+    <ClInclude Include="Implementation\RetrySqlOp.h">
+      <Filter>Implementation</Filter>
+    </ClInclude>
+    <ClInclude Include="Implementation\QueryResultImpl.h">
+      <Filter>Implementation</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Implementation">
@@ -45,9 +48,6 @@
       <Filter>Implementation</Filter>
     </ClCompile>
     <ClCompile Include="Implementation\DatabaseMysql.cpp">
-      <Filter>Implementation</Filter>
-    </ClCompile>
-    <ClCompile Include="Implementation\MySQLDelayThread.cpp">
       <Filter>Implementation</Filter>
     </ClCompile>
     <ClCompile Include="Implementation\QueryResultMysql.cpp">

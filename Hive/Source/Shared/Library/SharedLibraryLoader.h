@@ -29,7 +29,8 @@ class SharedLibraryLoader
 public:
 	SharedLibraryLoader()
 	{
-		_loader.loadLibrary(getLibraryName() + Poco::SharedLibrary::suffix());
+		string fileName = getLibraryName() + Poco::SharedLibrary::suffix();
+		_loader.loadLibrary(fileName);
 	}
 	~SharedLibraryLoader() 
 	{

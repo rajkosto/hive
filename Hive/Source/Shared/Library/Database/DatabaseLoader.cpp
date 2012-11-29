@@ -40,9 +40,6 @@ shared_ptr<Database> DatabaseLoader::create(DBType dbType)
 	case DBTYPE_MYSQL:
 		dbTypeStr = "DatabaseMysql";
 		break;
-	case DBTYPE_POSTGRESQL:
-		dbTypeStr = "DatabasePostgre";
-		break;
 	}
 
 	if (!holder.get()->canCreate(dbTypeStr))
@@ -70,8 +67,6 @@ namespace
 		DatabaseLoader::DBType dbTypeNum;
 		if (dbTypeStr.find("mysql") != string::npos)
 			dbTypeNum = DatabaseLoader::DBTYPE_MYSQL;
-		else if (dbTypeStr.find("postgre") != string::npos)
-			dbTypeNum = DatabaseLoader::DBTYPE_POSTGRESQL;
 		else
 			return false;
 
@@ -89,8 +84,7 @@ shared_ptr<Database> DatabaseLoader::create( Poco::Util::AbstractConfiguration* 
 	return create(dbTypeNum);
 }
 
-string DatabaseLoader::makeInitString( Poco::Util::AbstractConfiguration* dbConfig, 
-	string defUser/* = "root"*/, string defPass/* = ""*/, string defDbName/* = "dayz"*/, string defDbHost/* = "localhost"*/ )
+string DatabaseLoader::makeInitString(Poco::Util::AbstractConfiguration* dbConfig, const string& defUser, const string& defPass, const string& defDbName, const string& defDbHost)
 {
 	string host = dbConfig->getString("Host",defDbHost);
 
@@ -104,8 +98,6 @@ string DatabaseLoader::makeInitString( Poco::Util::AbstractConfiguration* dbConf
 	{
 		if (dbTypeNum == DBTYPE_MYSQL)
 			socket_or_port = "3306";
-		else if (dbTypeNum = DBTYPE_POSTGRESQL)
-			socket_or_port = "5432";
 	}
 
 	string username = dbConfig->getString("Username",defUser);
@@ -115,7 +107,9 @@ string DatabaseLoader::makeInitString( Poco::Util::AbstractConfiguration* dbConf
 	return DatabaseLoader::makeInitString(host,socket_or_port,username,password,database);
 }
 
-string DatabaseLoader::makeInitString(string host, string socket_or_port, string username, string password, string database)
+string DatabaseLoader::makeInitString(const string& host, const string& socket_or_port, const string& username, const string& password, const string& database)
 {
 	return Poco::format("%s;%s;%s;%s;%s",host,socket_or_port,username,password,database);
 }
+
+

@@ -22,50 +22,47 @@
 
 #include <Poco/Thread.h>
 
-SqlDelayThread::SqlDelayThread(Database* db, SqlConnection* conn) : m_dbEngine(db), m_dbConnection(conn), m_running(true)
+SqlDelayThread::SqlDelayThread(Database& db, SqlConnection& conn) : _dbEngine(db), _dbConn(conn), _isRunning(true)
 {
 }
 
 SqlDelayThread::~SqlDelayThread()
 {
+	//make sure we are stopped
+	stop();
     //process all requests which might have been queued while thread was stopping
-    ProcessRequests();
+    processRequests();
 }
 
 void SqlDelayThread::run()
 {
-    const UInt32 loopSleepms = 10;
+	_dbEngine.threadEnter();
 
-    const UInt32 pingEveryLoop = m_dbEngine->GetPingInterval() / loopSleepms;
+    const size_t loopSleepMS = 10;
 
-    UInt32 loopCounter = 0;
-    while (m_running)
+    while (_isRunning)
     {
-        // if the running state gets turned off while sleeping
-        // empty the queue before exiting
-        Poco::Thread::sleep(loopSleepms);
+        //if the running state gets turned off while sleeping
+        //empty the queue before exiting
+        Poco::Thread::sleep(loopSleepMS);
 
-        ProcessRequests();
-
-        if((loopCounter++) >= pingEveryLoop)
-        {
-            loopCounter = 0;
-            m_dbEngine->Ping();
-        }
+        processRequests();
     }
+
+	_dbEngine.threadExit();
 }
 
-void SqlDelayThread::Stop()
+void SqlDelayThread::stop()
 {
-    m_running = false;
+    _isRunning = false;
 }
 
-void SqlDelayThread::ProcessRequests()
+void SqlDelayThread::processRequests()
 {
-    SqlOperation* s = NULL;
-    while (m_sqlQueue.try_pop(s))
+    SqlOperation* s = nullptr;
+    while (_sqlQueue.try_pop(s))
     {
-        s->Execute(m_dbConnection);
-        delete s;
+        s->execute(_dbConn);
+        s->onRemove();
     }
 }

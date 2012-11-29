@@ -31,104 +31,108 @@
 #include <mysql.h>
 #endif
 
+class MySQLConnection;
 //MySQL prepared statement class
 class MySqlPreparedStatement : public SqlPreparedStatement
 {
 public:
-	MySqlPreparedStatement(const std::string& fmt, SqlConnection& conn);
+	MySqlPreparedStatement(const char* sqlText, MySQLConnection& conn);
 	~MySqlPreparedStatement();
 
 	//prepare statement
-	virtual bool prepare();
+	void prepare() override;
 
 	//bind input parameters
-	virtual void bind(const SqlStmtParameters& holder);
+	void bind(const SqlStmtParameters& holder) override;
 
 	//execute DML statement
-	virtual bool execute();
+	bool execute() override;
 
+	int lastError() const override;
+	std::string lastErrorDescr() const override;
+
+	std::string getSqlString(bool withValues=false) const override
+	{
+		std::string retStr = SqlPreparedStatement::getSqlString();
+		if (withValues)
+			retStr += bindParamsToStr();
+
+		return retStr;
+	}
 protected:
 	//bind parameters
-	void addParam(int nIndex, const SqlStmtFieldData& data);
-
-	static enum_field_types ToMySQLType( const SqlStmtFieldData& data, my_bool& bUnsigned );
-	static string MySQLParamToString( const MYSQL_BIND& par );
+	void addParam(size_t nIndex, const SqlStmtField& data);
 private:
-	void RemoveBinds();
-	std::string _BindParamsToStr() const;
+	void unprepare();
+	std::string bindParamsToStr() const;
 
-	class MySQLConnection& m_mySqlConn;
-	MYSQL_STMT* m_stmt;
-	MYSQL_BIND* m_pInputArgs;
-	MYSQL_BIND* m_pResult;
-	MYSQL_RES* m_pResultMetadata;
-
-	class Poco::Logger& _logger;
+	class MySQLConnection& _mySqlConn;
+	MYSQL_STMT* _myStmt;
+	std::vector<MYSQL_BIND>	_myArgs;
+	std::vector<MYSQL_BIND>	_myRes;
+	MYSQL_RES* _myResMeta;
 };
 
 class MySQLConnection : public SqlConnection
 {
 public:
-	MySQLConnection(Database& db);
+	//Initialize MySQL library and store credentials
+	//infoString should be formated like hostname;username;password;database
+	MySQLConnection(ConcreteDatabase& db, const std::string& infoString);
 	~MySQLConnection();
 
-	//! Initializes Mysql and connects to a server.
-	/*! infoString should be formated like hostname;username;password;database. */
-	bool Initialize(const std::string& infoString) override;
+	//Connect or reconnect using stored credentials
+	void connect() override;
 
-	QueryResult* Query(const char* sql);
-	QueryNamedResult* QueryNamed(const char* sql);
-	bool Execute(const char* sql);
+	unique_ptr<QueryResult> query(const char* sql) override;
+	unique_ptr<QueryNamedResult> namedQuery(const char* sql) override;
+	bool execute(const char* sql);
 
-	unsigned long escape_string(char* to, const char* from, unsigned long length);
+	size_t escapeString(char* to, const char* from, size_t length) const override;
 
-	bool BeginTransaction();
-	bool CommitTransaction();
-	bool RollbackTransaction();
+	bool transactionStart() override;
+	bool transactionCommit() override;
+	bool transactionRollback() override;
 
-	MYSQL_STMT* MySQLStmtInit();
-	int MySQLStmtPrepare(MYSQL_STMT* stmt, const std::string& sql);
-	int MySQLStmtExecute(MYSQL_STMT* &stmt, const std::string& sql, MYSQL_BIND* params);
-
+	MYSQL_STMT* _MySQLStmtInit();
+	void _MySQLStmtPrepare(const SqlPreparedStatement& who, MYSQL_STMT* stmt, const char* sqlText, size_t textLen);
+	void _MySQLStmtExecute(const SqlPreparedStatement& who, MYSQL_STMT* stmt);
 protected:
-	SqlPreparedStatement* CreateStatement(const std::string& fmt);
+	SqlPreparedStatement* createPreparedStatement(const char* sqlText) override;
 
 private:
 	bool _TransactionCmd(const char* sql);
-	bool _Query(const char* sql, MYSQL_RES** pResult, MYSQL_FIELD** pFields, UInt64* pRowCount, UInt32* pFieldCount);
-	int _Connect(MYSQL* mysqlInit);
-	bool _ConnectionLost(unsigned int errNo = 0) const;
-	bool _StmtFailed(MYSQL_STMT* stmt, bool* connLost = NULL) const;
-	int _MySQLQuery(const char* sql);
+	bool _Query(const char* sql, MYSQL_RES*& outResult, MYSQL_FIELD*& outFields, UInt64& outRowCount, size_t& outFieldCount);
+	void _MySQLQuery(const char* sql);
+	MYSQL_RES* _MySQLStoreResult(const char* sql, UInt64& outRowCount, size_t& outFieldCount);
 
 	std::string _host, _user, _password, _database;
 	int _port;
 	std::string _unix_socket;
 
-	MYSQL* mMysql;
-	class Poco::Logger& _logger;
+	MYSQL* _myHandle;
+	MYSQL* _myConn;
 };
 
 class DatabaseMysql : public ConcreteDatabase
 {
 public:
 	DatabaseMysql();
-	virtual ~DatabaseMysql();
+	~DatabaseMysql();
 
 	// must be call before first query in thread
-	void ThreadStart();
+	void threadEnter() override;
 	// must be call before the thread has finished running
-	void ThreadEnd();
+	void threadExit() override;
 
 	//Query creation helpers
-	std::string like() const override;
-	std::string table_sim(const std::string& tableName) const override;
-	std::string concat(const std::string& a, const std::string& b, const std::string& c) const override;
-	std::string offset() const override;
+	std::string sqlLike() const override;
+	std::string sqlTableSim(const std::string& tableName) const override;
+	std::string sqlConcat(const std::string& a, const std::string& b, const std::string& c) const override;
+	std::string sqlOffset() const override;
 
 protected:
-	virtual SqlDelayThread* CreateDelayThread() override;
-	virtual SqlConnection* CreateConnection();
+	unique_ptr<SqlConnection> createConnection(const std::string& infoString) override;
 
 private:
 	static size_t db_count;

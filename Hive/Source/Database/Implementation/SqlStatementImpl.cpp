@@ -23,27 +23,27 @@
 
 //////////////////////////////////////////////////////////////////////////
 
-void SqlStatementImpl::VerifyNumBoundParams( SqlStmtParameters* args )
+void SqlStatementImpl::verifyNumBoundParams( const SqlStmtParameters& args )
 {
 	//verify amount of bound parameters
-	if(args->boundParams() != this->numArgs())
+	if(args.boundParams() != this->numArgs())
 	{
 		string errMsg = Poco::format("SQL ERROR: wrong amount of parameters (%d instead of %d) in statement %s",
-			args->boundParams(),this->numArgs(),m_pDB->GetStmtString(this->getId()));
+			args.boundParams(),this->numArgs(),_dbEngine->getStmtString(this->getId()));
 		poco_bugcheck_msg(errMsg.c_str());
 	}
 }
 
-bool SqlStatementImpl::Execute()
+bool SqlStatementImpl::execute()
 {
-	SqlStmtParameters *args = detach();
-	VerifyNumBoundParams(args);
-	return m_pDB->ExecuteStmt(m_index, args);
+	SqlStmtParameters args = detach();
+	verifyNumBoundParams(args);
+	return _dbEngine->executeStmt(_stmtId, args);
 }
 
-bool SqlStatementImpl::DirectExecute()
+bool SqlStatementImpl::directExecute()
 {
-	SqlStmtParameters *args = detach();
-	VerifyNumBoundParams(args);
-	return m_pDB->DirectExecuteStmt(m_index, args);
+	SqlStmtParameters args = detach();
+	verifyNumBoundParams(args);
+	return _dbEngine->directExecuteStmt(_stmtId, args);
 }

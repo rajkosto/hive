@@ -31,210 +31,208 @@ static const size_t MAX_CONNECTION_POOL_SIZE = 16;
 
 //////////////////////////////////////////////////////////////////////////
 
-ConcreteDatabase::ConcreteDatabase() : m_pAsyncConn(NULL), m_pResultQueue(NULL), m_threadBody(NULL), m_delayThread(NULL),
-	m_logSQL(false), m_pingIntervallms(0), m_nQueryConnPoolSize(1), m_bAllowAsyncTransactions(false), _logger(nullptr)
+ConcreteDatabase::ConcreteDatabase() : _shouldLogSQL(false), _currConn(0), _asyncAllowed(false), _logger(nullptr)
 {
-	m_nQueryCounter = -1;
 }
 
 ConcreteDatabase::~ConcreteDatabase()
 {
-	StopServer();
+	stopServer();
 }
 
 #include <boost/lexical_cast.hpp>
 
-bool ConcreteDatabase::Initialize(Poco::Logger& dbLogger, const std::string& infoString, bool logSql, const std::string& logDir, int maxPingTime, int nConns)
+bool ConcreteDatabase::initialise(Poco::Logger& dbLogger, const string& infoString, bool logSql, const string& logDir, size_t nConns)
 {
+	stopServer();
+
 	_logger = &dbLogger;
 
-	// Enable logging of SQL commands (usually only high-risk commands)
-	// (See method: PExecuteLog)
-	m_logSQL = logSql;
-	m_logsDir = logDir;
-	if(!m_logsDir.empty())
+	//Enable logging of SQL commands (usually only high-risk commands)
+	//(See method: PExecuteLog)
+	_shouldLogSQL = logSql;
+	_sqlLogsDir = logDir;
+	if(!_sqlLogsDir.empty())
 	{
-		if((m_logsDir.at(m_logsDir.length()-1)!='/') && (m_logsDir.at(m_logsDir.length()-1)!='\\'))
-			m_logsDir.append("/");
+		if((_sqlLogsDir.at(_sqlLogsDir.length()-1)!='/') && (_sqlLogsDir.at(_sqlLogsDir.length()-1)!='\\'))
+			_sqlLogsDir.append("/");
 	}
-
-	m_pingIntervallms = maxPingTime * (60*60 * 1000);
 
 	//create DB connections
 
 	//setup connection pool size
-	if(nConns < MIN_CONNECTION_POOL_SIZE)
-		m_nQueryConnPoolSize = MIN_CONNECTION_POOL_SIZE;
-	else if(nConns > MAX_CONNECTION_POOL_SIZE)
-		m_nQueryConnPoolSize = MAX_CONNECTION_POOL_SIZE;
-	else
-		m_nQueryConnPoolSize = nConns;
+	size_t poolSize = nConns;
+	if(poolSize < MIN_CONNECTION_POOL_SIZE)
+		poolSize = MIN_CONNECTION_POOL_SIZE;
+	else if(poolSize > MAX_CONNECTION_POOL_SIZE)
+		poolSize = MAX_CONNECTION_POOL_SIZE;
 
-	//create connection pool for sync requests
-	for (int i = 0; i < m_nQueryConnPoolSize; ++i)
+	//initialize and connect all the connections
+	_queryConns.clear();
+	_queryConns.reserve(poolSize);
+	try
 	{
-		SqlConnection* pConn = CreateConnection();
-		if(!pConn->Initialize(infoString))
+		//create and initialize the sync connection pool
+		for (size_t i=0; i<poolSize; i++)
 		{
-			delete pConn;
-			return false;
+			unique_ptr<SqlConnection> pConn = createConnection(infoString);
+			pConn->connect();
+
+			_queryConns.push_back(pConn.release());
 		}
 
-		m_pQueryConnections.push_back(pConn);
+		//create and initialize connection for async requests
+		_asyncConn = createConnection(infoString);
+		_asyncConn->connect();
+	}
+	catch(const SqlConnection::SqlException& e)
+	{
+		e.toLog(dbLogger);
+		return false;
 	}
 
-	//create and initialize connection for async requests
-	m_pAsyncConn = CreateConnection();
-	if(!m_pAsyncConn->Initialize(infoString))
-		return false;
+	_resultQueue.clear();
 
-	m_pResultQueue = new SqlResultQueue;
-
-	InitDelayThread();
+	initDelayThread();
 	return true;
 }
 
-void ConcreteDatabase::StopServer()
+void ConcreteDatabase::stopServer()
 {
-	HaltDelayThread();
-	/*Delete objects*/
-	if(m_pResultQueue)
-	{
-		delete m_pResultQueue;
-		m_pResultQueue = NULL;
-	}
+	haltDelayThread();
 
-	if(m_pAsyncConn)
-	{
-		delete m_pAsyncConn;
-		m_pAsyncConn = NULL;
-	}
-
-	for (size_t i = 0; i < m_pQueryConnections.size(); ++i)
-		delete m_pQueryConnections[i];
-
-	m_pQueryConnections.clear();
-
+	_resultQueue.clear();
+	_asyncConn.reset();
+	_queryConns.clear();
 }
 
-SqlDelayThread* ConcreteDatabase::CreateDelayThread()
+unique_ptr<SqlDelayThread> ConcreteDatabase::createDelayThread()
 {
-	assert(m_pAsyncConn);
-	return new SqlDelayThread(this, m_pAsyncConn);
+	poco_assert(_asyncConn);
+	return unique_ptr<SqlDelayThread>(new SqlDelayThread(*this, *_asyncConn));
 }
 
 #include <Poco/Thread.h>
 
-void ConcreteDatabase::InitDelayThread()
+void ConcreteDatabase::initDelayThread()
 {
-	assert(!m_delayThread);
+	if (_delayRunner)
+		haltDelayThread();
+
+	poco_assert_dbg(!_delayRunner);
 
 	//New delay thread for delay execute
-	m_threadBody = CreateDelayThread();              // will deleted at m_delayThread delete
-	m_delayThread = new Poco::Thread("SQL Delay Thread");
-	m_delayThread->start(*m_threadBody);
+	_delayRunner.reset(new DelayThreadRunnable(createDelayThread()));
+	_delayRunner->start();
 }
 
-void ConcreteDatabase::HaltDelayThread()
+void ConcreteDatabase::haltDelayThread()
 {
-	if (!m_threadBody || !m_delayThread) return;
+	if (!_delayRunner) 
+		return;
 
-	m_threadBody->Stop();                                   //Stop event
-	m_delayThread->join();                                  //Wait for flush to DB
-	delete m_delayThread;                                   //This also deletes m_threadBody
-	m_delayThread = NULL;
-	m_threadBody = NULL;
+	_delayRunner->stop();
+	_delayRunner.reset();
 }
 
-Poco::Logger& ConcreteDatabase::CreateLogger(const std::string& subName)
-{
-	string newLoggerName = _logger->name() + "." + subName;
-	Poco::Logger& theLogger = Poco::Logger::get(newLoggerName);
-	theLogger.setChannel(_logger->getChannel());
-	theLogger.setLevel(_logger->getLevel());
-	return theLogger;
-}
-
-void ConcreteDatabase::SetLoggerLevel( int newLevel )
-{
-	poco_assert(_logger != nullptr);
-	Poco::Logger::setLevel(_logger->name(),newLevel);
-}
-
-void ConcreteDatabase::ThreadStart()
+void ConcreteDatabase::threadEnter()
 {
 }
 
-void ConcreteDatabase::ThreadEnd()
+void ConcreteDatabase::threadExit()
 {
 }
 
-QueryResult* ConcreteDatabase::Query( const char* sql )
+#include "RetrySqlOp.h"
+
+unique_ptr<QueryResult> ConcreteDatabase::query( const char* sql )
 {
-	SqlConnection::Lock guard(getQueryConnection());
-	return guard->Query(sql);
+	SqlConnection& conn = getQueryConnection();
+	SqlConnection::Lock guard(conn);
+	return Retry::SqlOp< unique_ptr<QueryResult> >(getLogger(),[sql](SqlConnection& c){ return c.query(sql); })(conn,"Query",[sql](){return sql;});
 }
 
-QueryNamedResult* ConcreteDatabase::QueryNamed( const char* sql )
+unique_ptr<QueryNamedResult> ConcreteDatabase::namedQuery( const char* sql )
 {
-	SqlConnection::Lock guard(getQueryConnection());
-	return guard->QueryNamed(sql);
+	SqlConnection& conn = getQueryConnection();
+	SqlConnection::Lock guard(conn);
+	return Retry::SqlOp< unique_ptr<QueryNamedResult> >(getLogger(),[sql](SqlConnection& c){ return c.namedQuery(sql); })(conn,"QueryNamed",[sql](){return sql;});
 }
 
-bool ConcreteDatabase::DirectExecute( const char* sql )
+bool ConcreteDatabase::directExecute( const char* sql )
 {
-	if(!m_pAsyncConn)
+	if(!_asyncConn)
 		return false;
 
-	SqlConnection::Lock guard(m_pAsyncConn);
-	return guard->Execute(sql);
+	SqlConnection& conn = getAsyncConnection();
+	SqlConnection::Lock guard(conn);
+	return Retry::SqlOp<bool>(getLogger(),[sql](SqlConnection& c){ return c.execute(sql); })(conn,"SqlExec",[sql](){return sql;} );
 }
 
-void ConcreteDatabase::ProcessResultQueue()
+void ConcreteDatabase::invokeCallbacks()
 {
-	if(m_pResultQueue)
-		m_pResultQueue->Update();
+	_resultQueue.processCallbacks();
 }
 
-std::string ConcreteDatabase::escape_string(std::string str)
+std::string ConcreteDatabase::escape(const std::string& str) const
 {
 	if(str.empty())
 		return str;
 
-	char* buf = new char[str.size()*2+1];
-	//we don't care what connection to use - escape string will be the same
-	m_pQueryConnections[0]->escape_string(buf,str.c_str(),str.length());
-	str = buf;
-	delete[] buf;
-	return str;
-}
+	vector<char> buf(str.size()*2+1);
+	//escape string generation is a client-side operation, so the selection of connection is irrelevant
+	size_t sLen = _queryConns[0].escapeString(&buf[0],str.c_str(),str.length());
 
-SqlConnection* ConcreteDatabase::getQueryConnection()
-{
-	int nCount = 0;
-
-	if(m_nQueryCounter == long(1 << 31))
-		m_nQueryCounter = 0;
+	if (sLen > 0)
+		return string(buf.data(),sLen);
 	else
-		nCount = ++m_nQueryCounter;
-
-	return m_pQueryConnections[nCount % m_nQueryConnPoolSize];
+		return str;
 }
 
-void ConcreteDatabase::Ping()
+SqlConnection& ConcreteDatabase::getQueryConnection()
+{
+	poco_assert(_queryConns.size() > 0);
+	size_t nCount = _currConn++;
+	return _queryConns[nCount % _queryConns.size()];
+}
+
+SqlConnection& ConcreteDatabase::getAsyncConnection()
+{
+	return *_asyncConn;
+}
+
+bool ConcreteDatabase::checkConnections()
 {
 	const char* sql = "SELECT 1";
-
+	auto checkFunc = [](QueryResult* res) -> bool
 	{
-		SqlConnection::Lock guard(m_pAsyncConn);
-		delete guard->Query(sql);
+		if (!res) return false;
+		if (!res->fetchRow()) return false;
+		if (res->at(0).getInt32() != 1) return false;
+
+		return true;
+	};
+
+	//check async conn
+	{
+		SqlConnection& conn = getAsyncConnection();
+		SqlConnection::Lock guard(conn);
+		auto qry = Retry::SqlOp< unique_ptr<QueryResult> >(getLogger(),[sql](SqlConnection& c){ return c.query(sql); })(conn,"CheckAsync");
+		if (!checkFunc(qry.get()))
+			return false;
 	}
 
-	for (int i = 0; i < m_nQueryConnPoolSize; ++i)
+	//check all sync conns
+	for (size_t i=0; i<_queryConns.size(); i++)
 	{
-		SqlConnection::Lock guard(m_pQueryConnections[i]);
-		delete guard->Query(sql);
+		SqlConnection& conn = _queryConns[i];
+		SqlConnection::Lock guard(conn);
+		auto qry = Retry::SqlOp< unique_ptr<QueryResult> >(getLogger(),[sql](SqlConnection& c){ return c.query(sql); })(conn,"CheckPool");
+		if (!checkFunc(qry.get()))
+			return false;
 	}
+
+	return true;
 }
 
 #include <Poco/LocalDateTime.h>
@@ -243,7 +241,7 @@ void ConcreteDatabase::Ping()
 
 namespace { const size_t MAX_QUERY_LEN = 32*1024; };
 
-bool ConcreteDatabase::PExecuteLog(const char* format,...)
+bool ConcreteDatabase::executeParamsLog(const char* format,...)
 {
 	if (!format)
 		return false;
@@ -254,14 +252,14 @@ bool ConcreteDatabase::PExecuteLog(const char* format,...)
 	int res = vsnprintf( szQuery, MAX_QUERY_LEN, format, ap );
 	va_end(ap);
 
-	if (!CheckFmtError(res,format))
+	if (!checkFmtError(res,format))
 		return false;
 
-	if( m_logSQL )
+	if (_shouldLogSQL)
 	{
 		string fName(Poco::DateTimeFormatter::format(Poco::LocalDateTime(), "%Y-%m-%d_logSQL.sql")); 
 
-		string logsDir_fname = m_logsDir+fName;
+		string logsDir_fname = _sqlLogsDir+fName;
 		std::ofstream log_file;
 		log_file.open(logsDir_fname.c_str(),std::ios::app);
 		if (log_file.is_open())
@@ -276,12 +274,13 @@ bool ConcreteDatabase::PExecuteLog(const char* format,...)
 		}
 	}
 
-	return Execute(szQuery);
+	return execute(szQuery);
 }
 
-QueryResult* ConcreteDatabase::PQuery(const char* format,...)
+unique_ptr<QueryResult> ConcreteDatabase::queryParams(const char* format,...)
 {
-	if(!format) return NULL;
+	if (!format) 
+		return nullptr;
 
 	va_list ap;
 	char szQuery[MAX_QUERY_LEN];
@@ -289,15 +288,16 @@ QueryResult* ConcreteDatabase::PQuery(const char* format,...)
 	int res = vsnprintf( szQuery, MAX_QUERY_LEN, format, ap );
 	va_end(ap);
 
-	if (!CheckFmtError(res,format))
+	if (!checkFmtError(res,format))
 		return false;
 
-	return Query(szQuery);
+	return query(szQuery);
 }
 
-QueryNamedResult* ConcreteDatabase::PQueryNamed(const char* format,...)
+unique_ptr<QueryNamedResult> ConcreteDatabase::namedQueryParams(const char* format,...)
 {
-	if(!format) return NULL;
+	if (!format)
+		return nullptr;
 
 	va_list ap;
 	char szQuery[MAX_QUERY_LEN];
@@ -305,37 +305,37 @@ QueryNamedResult* ConcreteDatabase::PQueryNamed(const char* format,...)
 	int res = vsnprintf( szQuery, MAX_QUERY_LEN, format, ap );
 	va_end(ap);
 
-	if (!CheckFmtError(res,format))
+	if (!checkFmtError(res,format))
 		return false;
 
-	return QueryNamed(szQuery);
+	return namedQuery(szQuery);
 }
 
-bool ConcreteDatabase::Execute(const char* sql)
+bool ConcreteDatabase::execute(const char* sql)
 {
-	if (!m_pAsyncConn)
+	if (!_asyncConn)
 		return false;
 
-	SqlTransaction* pTrans = m_TransStorage->get();
+	SqlTransaction* pTrans = _transStorage->get();
 	if(pTrans)
 	{
 		//add SQL request to trans queue
-		pTrans->DelayExecute(new SqlPlainRequest(sql));
+		pTrans->queueOperation(new SqlPlainRequest(sql));
 	}
 	else
 	{
 		//if async execution is not available
-		if(!m_bAllowAsyncTransactions)
-			return DirectExecute(sql);
+		if(!_asyncAllowed)
+			return directExecute(sql);
 
 		// Simple sql statement
-		m_threadBody->Delay(new SqlPlainRequest(sql));
+		_delayRunner->queueOperation(new SqlPlainRequest(sql));
 	}
 
 	return true;
 }
 
-bool ConcreteDatabase::PExecute(const char* format,...)
+bool ConcreteDatabase::executeParams(const char* format,...)
 {
 	if (!format)
 		return false;
@@ -346,13 +346,13 @@ bool ConcreteDatabase::PExecute(const char* format,...)
 	int res = vsnprintf( szQuery, MAX_QUERY_LEN, format, ap );
 	va_end(ap);
 
-	if (!CheckFmtError(res,format))
+	if (!checkFmtError(res,format))
 		return false;
 
-	return Execute(szQuery);
+	return execute(szQuery);
 }
 
-bool ConcreteDatabase::DirectPExecute(const char* format,...)
+bool ConcreteDatabase::directExecuteParams(const char* format,...)
 {
 	if (!format)
 		return false;
@@ -363,23 +363,25 @@ bool ConcreteDatabase::DirectPExecute(const char* format,...)
 	int res = vsnprintf( szQuery, MAX_QUERY_LEN, format, ap );
 	va_end(ap);
 
-	if (!CheckFmtError(res,format))
+	if (!checkFmtError(res,format))
 		return false;
 
-	return DirectExecute(szQuery);
+	return directExecute(szQuery);
 }
 
-bool ConcreteDatabase::AsyncQuery( QueryCallback::FuncType func, const char* sql )
+bool ConcreteDatabase::asyncQuery( QueryCallback::FuncType func, const char* sql )
 {
 	if (!sql)
 		return false;
 
-	return this->DoDelay(sql, QueryCallback(func));
+	return this->doDelay(sql, QueryCallback(func));
 }
 
-bool ConcreteDatabase::AsyncPQuery( QueryCallback::FuncType func, const char* format, ... )
+bool ConcreteDatabase::asyncQueryParams( QueryCallback::FuncType func, const char* format, ... )
 {
-	if(!format) return false;
+	if (!format)
+		return false;
+
 	char szQuery[MAX_QUERY_LEN];
 	{		
 		va_list ap;
@@ -387,132 +389,135 @@ bool ConcreteDatabase::AsyncPQuery( QueryCallback::FuncType func, const char* fo
 		int res = vsnprintf( szQuery, MAX_QUERY_LEN, format, ap );
 		va_end(ap);
 
-		if (!CheckFmtError(res,format))
+		if (!checkFmtError(res,format))
 			return false;
 	}
-	return AsyncQuery(func, szQuery);
+	return asyncQuery(func, szQuery);
 }
 
-bool ConcreteDatabase::BeginTransaction()
+bool ConcreteDatabase::transactionStart()
 {
-	if (!m_pAsyncConn)
+	if (!_asyncConn)
 		return false;
 
 	//initiate transaction on current thread
 	//currently we do not support queued transactions
-	m_TransStorage->init();
+	_transStorage->init();
 	return true;
 }
 
-bool ConcreteDatabase::CommitTransaction()
+bool ConcreteDatabase::transactionCommit()
 {
-	if (!m_pAsyncConn)
+	if (!_asyncConn)
 		return false;
 
 	//check if we have pending transaction
-	if(!m_TransStorage->get())
+	if(!_transStorage->get())
 		return false;
 
 	//if async execution is not available
-	if(!m_bAllowAsyncTransactions)
-		return CommitTransactionDirect();
+	if(!_asyncAllowed)
+		return transactionCommitDirect();
 
 	//add SqlTransaction to the async queue
-	m_threadBody->Delay(m_TransStorage->detach());
+	_delayRunner->queueOperation(_transStorage->detach());
 	return true;
 }
 
-bool ConcreteDatabase::CommitTransactionDirect()
+bool ConcreteDatabase::transactionCommitDirect()
 {
-	if (!m_pAsyncConn)
+	if (!_asyncConn)
 		return false;
 
 	//check if we have pending transaction
-	if(!m_TransStorage->get())
+	if(!_transStorage->get())
 		return false;
 
 	//directly execute SqlTransaction
-	SqlTransaction* pTrans = m_TransStorage->detach();
-	pTrans->Execute(m_pAsyncConn);
-	delete pTrans;
+	{
+		scoped_ptr<SqlTransaction> pTrans(_transStorage->detach());
+		pTrans->execute(getAsyncConnection());	
+	}
 
 	return true;
 }
 
-bool ConcreteDatabase::RollbackTransaction()
+bool ConcreteDatabase::transactionRollback()
 {
-	if (!m_pAsyncConn)
+	if (!_asyncConn)
 		return false;
 
-	if(!m_TransStorage->get())
+	if(!_transStorage->get())
 		return false;
 
 	//remove scheduled transaction
-	m_TransStorage->reset();
+	_transStorage->reset();
 
 	return true;
 }
 
-bool ConcreteDatabase::ExecuteStmt( const SqlStatementID& id, SqlStmtParameters* params )
+bool ConcreteDatabase::executeStmt( const SqlStatementID& id, SqlStmtParameters& params )
 {
-	if (!m_pAsyncConn)
+	if (!_asyncConn)
 		return false;
 
-	SqlTransaction *pTrans = m_TransStorage->get();
+	SqlTransaction *pTrans = _transStorage->get();
 	if(pTrans)
 	{
 		//add SQL request to trans queue
-		pTrans->DelayExecute(new SqlPreparedRequest(id, params));
+		pTrans->queueOperation(new SqlPreparedRequest(id, params));
 	}
 	else
 	{
 		//if async execution is not available
-		if(!m_bAllowAsyncTransactions)
-			return DirectExecuteStmt(id, params);
+		if(!_asyncAllowed)
+			return directExecuteStmt(id, params);
 
 		// Simple sql statement
-		m_threadBody->Delay(new SqlPreparedRequest(id, params));
+		_delayRunner->queueOperation(new SqlPreparedRequest(id, params));
 	}
 
 	return true;
 }
 
-bool ConcreteDatabase::DirectExecuteStmt( const SqlStatementID& id, SqlStmtParameters* params )
+bool ConcreteDatabase::directExecuteStmt( const SqlStatementID& id, SqlStmtParameters& params )
 {
-	poco_assert(params);
-	std::auto_ptr<SqlStmtParameters> p(params);
 	//execute statement
-	SqlConnection::Lock _guard(getAsyncConnection());
-	return _guard->ExecuteStmt(id, *params);
+	SqlConnection& conn = getAsyncConnection();
+	SqlConnection::Lock guard(conn);
+
+	return Retry::SqlOp<bool>(getLogger(),[&](SqlConnection& c){ return c.executeStmt(id, params); })(conn,"DirectStmtExec",[&](){ return conn.getStmt(id)->getSqlString(true); });
 }
 
-SqlStatement* ConcreteDatabase::CreateStatement(SqlStatementID& index, const std::string& fmt )
+unique_ptr<SqlStatement> ConcreteDatabase::makeStatement( SqlStatementID& index, std::string sqlText )
 {
-	//initialize the statement if its not
+	//initialize the statement if its not (or missing in the registry)
 	if(!index.isInitialized())
 	{
 		//count input parameters
-		size_t nParams = std::count(fmt.begin(), fmt.end(), '?');
-		UInt32 nId = m_prepStmtRegistry.getStmtId(fmt);
+		size_t nParams = std::count(sqlText.begin(), sqlText.end(), '?');
+		UInt32 nId = _prepStmtRegistry.getStmtId(std::move(sqlText));
 
 		//save initialized statement index info
 		index.init(nId, nParams);
 	}
+	else if (!_prepStmtRegistry.idDefined(index.getId()))
+		_prepStmtRegistry.insertStmt(index.getId(),std::move(sqlText));
 
-	return new SqlStatementImpl(index, *this);
+	return unique_ptr<SqlStatement>(new SqlStatementImpl(index, *this));
 }
 
-std::string ConcreteDatabase::GetStmtString(UInt32 stmtId) const
+const char* ConcreteDatabase::getStmtString(UInt32 stmtId) const
 {
-	return m_prepStmtRegistry.getStmtString(stmtId);
+	return _prepStmtRegistry.getStmtString(stmtId);
 }
 
-bool ConcreteDatabase::DoDelay( const char* sql, QueryCallback callback )
+bool ConcreteDatabase::doDelay( const char* sql, QueryCallback callback )
 {
-	return m_threadBody->Delay(new SqlQuery(sql, callback, m_pResultQueue));
+	return _delayRunner->queueOperation(new SqlQuery(sql, callback, _resultQueue));
 }
 
-bool ConcreteDatabase::CheckFmtError( int res, const char* format ) const
+bool ConcreteDatabase::checkFmtError( int res, const char* format ) const
 {
 	if(res==-1)
 	{
@@ -523,55 +528,36 @@ bool ConcreteDatabase::CheckFmtError( int res, const char* format ) const
 }
 
 //HELPER CLASSES AND FUNCTIONS
-ConcreteDatabase::TransHelper::~TransHelper()
-{
-	reset();
-}
-
 SqlTransaction* ConcreteDatabase::TransHelper::init()
 {
-	poco_assert(!m_pTrans);   //if we will get a nested transaction request - we MUST fix code!!!
-	m_pTrans = new SqlTransaction;
-	return m_pTrans;
+	//if we need to support nested transaction requests, all this will need to be rewritten
+	poco_assert(!_trans);
+	_trans.reset(new SqlTransaction());
+	return get();
 }
 
-SqlTransaction* ConcreteDatabase::TransHelper::detach()
+void ConcreteDatabase::PreparedStmtRegistry::insertStmt(UInt32 theId, std::string fmt)
 {
-	SqlTransaction * pRes = m_pTrans;
-	m_pTrans = NULL;
-	return pRes;
+	RegistryGuardType _guard(_lock);
+	_insertStmt(theId,std::move(fmt));
 }
 
-void ConcreteDatabase::TransHelper::reset()
+void ConcreteDatabase::PreparedStmtRegistry::_insertStmt( UInt32 theId, std::string fmt )
 {
-	if(m_pTrans)
-	{
-		delete m_pTrans;
-		m_pTrans = NULL;
-	}
+	StatementMap::const_iterator it = _stringMap.insert(std::make_pair(std::move(fmt),theId)).first;
+	_idMap.insert(std::make_pair(theId,it->first.c_str()));
 }
 
-namespace
-{
-	UInt32 GetUniqueId()
-	{
-		UInt64 cpuTimer = __rdtsc();
-		UInt32 mixed = cpuTimer & 0xFFFFFFFF;
-		mixed ^= (UInt64(cpuTimer >> 32)) & 0xFFFFFFFF;
-		return mixed;
-	}
-};
-
-UInt32 ConcreteDatabase::PreparedStmtRegistry::getStmtId( const std::string& fmt )
+UInt32 ConcreteDatabase::PreparedStmtRegistry::getStmtId( std::string fmt )
 {
 	UInt32 nId;
 
 	RegistryGuardType _guard(_lock);
-	StatementMap::const_iterator iter = _map.find(fmt);
-	if(iter == _map.end())
+	StatementMap::const_iterator iter = _stringMap.find(fmt);
+	if(iter == _stringMap.end())
 	{
-		nId = GetUniqueId();
-		_map[fmt] = nId;
+		nId = ++_nextId;
+		_insertStmt(nId,fmt);
 	}
 	else
 		nId = iter->second;
@@ -579,17 +565,15 @@ UInt32 ConcreteDatabase::PreparedStmtRegistry::getStmtId( const std::string& fmt
 	return nId;
 }
 
-std::string ConcreteDatabase::PreparedStmtRegistry::getStmtString( UInt32 stmtId ) const
+const char* ConcreteDatabase::PreparedStmtRegistry::getStmtString( UInt32 stmtId ) const
 {
 	if(stmtId == 0)
-		return std::string();
+		return nullptr;
 
 	RegistryGuardType _guard(_lock);
-	for(StatementMap::const_iterator iter = _map.begin(); iter != _map.end(); ++iter)
-	{
-		if(iter->second == stmtId)
-			return iter->first;
-	}
+	IdMap::const_iterator it = _idMap.find(stmtId);
+	if (it != _idMap.end())
+		return it->second;
 
-	return std::string();
+	return nullptr;
 }

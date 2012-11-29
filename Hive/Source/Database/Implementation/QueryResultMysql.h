@@ -21,7 +21,7 @@
 #ifdef MYSQL_ENABLED
 
 #include "Shared/Common/Types.h"
-#include "Database/QueryResult.h"
+#include "QueryResultImpl.h"
 
 #ifdef WIN32
 #include <winsock2.h>
@@ -30,18 +30,17 @@
 #include <mysql.h>
 #endif
 
-class QueryResultMysql : public QueryResult
+class QueryResultMysql : public QueryResultImpl
 {
 public:
-	QueryResultMysql(MYSQL_RES* result, MYSQL_FIELD* fields, UInt64 rowCount, UInt32 fieldCount);
+	QueryResultMysql(MYSQL_RES* result, MYSQL_FIELD* fields, UInt64 rowCount, size_t fieldCount);
 	~QueryResultMysql();
 
-	bool NextRow();
+	bool fetchRow() override;
 private:
-	enum Field::DataTypes ConvertNativeType(enum_field_types mysqlType) const;
-	void EndQuery();
+	void finish();
 
-	MYSQL_RES* mResult;
+	MYSQL_RES* _myRes;
 };
 
 #endif

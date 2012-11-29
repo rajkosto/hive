@@ -25,82 +25,73 @@
 #include "Callback.h"
 
 namespace Poco { class Logger; };
-class Database
+
+class Database : public boost::noncopyable
 {
 public:
 	virtual ~Database() {};
 
-	virtual bool Initialize(Poco::Logger& dbLogger, const std::string& infoString, bool logSql = false, const std::string& logDir = "", int maxPingTime = 30, int nConns = 1) = 0;
+	virtual bool initialise(Poco::Logger& dbLogger, const std::string& infoString, bool logSql = false, const std::string& logDir = "", size_t nConns = 1) = 0;
+
 	//start worker thread for async DB request execution
-	virtual void InitDelayThread() = 0;
+	virtual void initDelayThread() = 0;
 	//stop worker thread
-	virtual void HaltDelayThread() = 0;
+	virtual void haltDelayThread() = 0;
 
-	//Logging
-	virtual Poco::Logger& CreateLogger(const std::string& subName) = 0;
-	virtual void SetLoggerLevel(int newLevel) = 0;
+	//Synchronous DB queries
+	virtual unique_ptr<QueryResult> query(const char* sql) = 0;
+	virtual unique_ptr<QueryNamedResult> namedQuery(const char* sql) = 0;
 
-	/// Synchronous DB queries
-	virtual QueryResult* Query(const char* sql) = 0;
+	virtual unique_ptr<QueryResult> queryParams(const char* format,...) = 0;
+	virtual unique_ptr<QueryNamedResult> namedQueryParams(const char* format,...) = 0;
 
-	virtual QueryNamedResult* QueryNamed(const char* sql) = 0;
-
-	virtual QueryResult* PQuery(const char* format,...) = 0;
-	virtual QueryNamedResult* PQueryNamed(const char* format,...) = 0;
-
-	virtual bool DirectExecute(const char* sql) = 0;
-
-	virtual bool DirectPExecute(const char* format,...) = 0;
+	virtual bool directExecute(const char* sql) = 0;
+	virtual bool directExecuteParams(const char* format,...) = 0;
 
 	//Query creation helpers
-	virtual std::string like() const = 0;
-	virtual std::string table_sim(const std::string& tableName) const = 0;
-	virtual std::string concat(const std::string& a, const std::string& b, const std::string& c) const = 0;
-	virtual std::string offset() const = 0;
+	virtual std::string sqlLike() const = 0;
+	virtual std::string sqlTableSim(const std::string& tableName) const = 0;
+	virtual std::string sqlConcat(const std::string& a, const std::string& b, const std::string& c) const = 0;
+	virtual std::string sqlOffset() const = 0;
 
 	//Async queries and query holders
-	virtual bool AsyncQuery(QueryCallback::FuncType func, const char* sql) = 0;
-	virtual bool AsyncPQuery(QueryCallback::FuncType func, const char* format, ...) = 0;
+	virtual bool asyncQuery(QueryCallback::FuncType func, const char* sql) = 0;
+	virtual bool asyncQueryParams(QueryCallback::FuncType func, const char* format, ...) = 0;
 
-	virtual bool Execute(const char* sql) = 0;
-	virtual bool PExecute(const char* format,...) = 0;
+	virtual bool execute(const char* sql) = 0;
+	virtual bool executeParams(const char* format,...) = 0;
 
-	// Writes SQL commands to a LOG file
-	virtual bool PExecuteLog(const char* format,...) = 0;
+	//Writes SQL commands to a LOG file
+	virtual bool executeParamsLog(const char* format,...) = 0;
 
-	virtual bool BeginTransaction() = 0;
-	virtual bool CommitTransaction() = 0;
-	virtual bool RollbackTransaction() = 0;
+	virtual bool transactionStart() = 0;
+	virtual bool transactionCommit() = 0;
+	virtual bool transactionRollback() = 0;
 	//for sync transaction execution
-	virtual bool CommitTransactionDirect() = 0;
+	virtual bool transactionCommitDirect() = 0;
 
 	//PREPARED STATEMENT API
 
-	//allocate index for prepared statement with SQL request 'fmt'
-	virtual SqlStatement* CreateStatement(SqlStatementID& index, const std::string& fmt) = 0;
-	//get prepared statement format string
-	virtual std::string GetStmtString(UInt32 stmtId) const = 0;
+	//allocate index for prepared statement with SQL request string
+	virtual unique_ptr<SqlStatement> makeStatement(SqlStatementID& index, std::string sqlText) = 0;
 
+	//Is DB ready for requests
 	virtual operator bool () const = 0;
 
-	//escape string generation
-	virtual std::string escape_string(std::string str) = 0;
+	//Escape string generation
+	virtual std::string escape(const std::string& str) const = 0;
 
-	// must be called before first query in thread (one time for thread using one from existing Database objects)
-	virtual void ThreadStart() = 0;
-	// must be called before finish thread run (one time for thread using one from existing Database objects)
-	virtual void ThreadEnd() = 0;
+	//Call before first query in a thread
+	virtual void threadEnter() = 0;
+	//Must be called before the thread that called ThreadStart exits
+	virtual void threadExit() = 0;
 
-	// set database-wide result queue. also we should use object-based and not thread-based result queues
-	virtual void ProcessResultQueue() = 0;
+	//Invoke callbacks for finished async queries
+	virtual void invokeCallbacks() = 0;
 
-	virtual UInt32 GetPingInterval() const = 0;
+	//Check if connection to DB is alive and well
+	virtual bool checkConnections() = 0;
 
-	//function to ping database connections
-	virtual void Ping() =0;
-
-	//set this to allow async transactions
-	//you should call it explicitly after your server successfully started up
-	//NO ASYNC TRANSACTIONS DURING SERVER STARTUP - ONLY DURING RUNTIME!!!
-	virtual void AllowAsyncTransactions() = 0;
+	//Call this once you're out of global constructor code/DLLMain
+	virtual void allowAsyncOperations() = 0;
 };

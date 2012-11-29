@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include "Shared/Common/Types.h"
 #include <boost/function.hpp>
 
 class QueryResult;
@@ -28,7 +29,14 @@ struct QueryCallback
 	QueryCallback() : res(nullptr) {}
 	QueryCallback(FuncType fun, QueryResult* res = nullptr) : fun(fun), res(res) {}
 
-	void execute() { if (!fun.empty()) fun(res); }
+	void invoke() 
+	{ 
+		scoped_ptr<QueryResult> pRes(res);
+		res = nullptr;
+
+		if (!fun.empty()) 
+			fun(pRes.get());
+	}
 	void setResult(QueryResult* res) { this->res = res; }
 protected:
 	FuncType fun;

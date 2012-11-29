@@ -17,107 +17,167 @@
 */
 
 #include "SqlConnection.h"
-#include "Database/Database.h"
+#include "ConcreteDatabase.h"
 #include "SqlPreparedStatement.h"
 
-//////////////////////////////////////////////////////////////////////////
-SqlPreparedStatement* SqlConnection::CreateStatement( const std::string& fmt )
+#include <sstream>
+
+void SqlConnection::SqlException::toStream( std::ostream& ostr ) const
 {
-	return new SqlPlainPreparedStatement(fmt, *this);
+	if (isConnLost())
+		ostr << "Connection lost (" << getDescr() << ") during ";
+	else
+		ostr << "Error " << getCode() << " (" << getDescr() << ") in ";
+
+	ostr << getFunction();
+
+	if (getQuery().length() > 0)
+		ostr << " SQL: '" << getQuery() << "'";
+	if (isRepeatable())
+		ostr << " , retrying...";
+}
+
+std::string SqlConnection::SqlException::toString() const
+{
+	std::ostringstream str;
+	toStream(str);
+	return str.str();
+}
+
+void SqlConnection::SqlException::toLog( Poco::Logger& logger ) const
+{
+	if (isRepeatable())
+		logger.warning(this->toString());
+	else
+		logger.error(this->toString());
+}
+
+//////////////////////////////////////////////////////////////////////////
+SqlPreparedStatement* SqlConnection::createPreparedStatement( const char* sqlText )
+{
+	return new SqlPlainPreparedStatement(sqlText, *this);
 }
 
 void SqlConnection::clear()
 {
-	SqlConnection::Lock guard(this);
-	m_stmtHolder.clear();
+	SqlConnection::Lock guard(*this);
+	_stmtHolder.clear();
 }
 
-SqlPreparedStatement* SqlConnection::GetStmt( const SqlStatementID& stId )
+SqlPreparedStatement* SqlConnection::getStmt( const SqlStatementID& stId )
 {
 	if(!stId.isInitialized())
-		return NULL;
+		return nullptr;
 
 	UInt32 stmtId = stId.getId();
-	SqlPreparedStatement* pStmt = m_stmtHolder.getPrepStmtObj(stmtId);
+	SqlPreparedStatement* pStmt = _stmtHolder.getPrepStmtObj(stmtId);
 
 	//create stmt obj if needed
-	if(pStmt == NULL)
+	if(pStmt == nullptr)
 	{
 		//obtain SQL request string
-		std::string fmt = m_db.GetStmtString(stmtId);
-		poco_assert(fmt.length());
-		//allocate SQlPreparedStatement object
-		pStmt = CreateStatement(fmt);
+		const char* sqlText = _dbEngine->getStmtString(stmtId);
+		if (!sqlText || !sqlText[0])
+			poco_bugcheck_msg("Blank sql statment string!");
+
+		//allocate SqlPreparedStatement object
+		pStmt = createPreparedStatement(sqlText);
 		//prepare statement
-		if(!pStmt->prepare())
-		{
-			poco_bugcheck_msg("Unable to prepare SQL statement");
-			return NULL;
-		}
+		pStmt->prepare();
 
 		//save statement in internal registry
-		m_stmtHolder.insertPrepStmtObj(stmtId,pStmt);
+		_stmtHolder.insertPrepStmtObj(stmtId,pStmt);
 	}
 
 	return pStmt;
 }
 
-bool SqlConnection::ExecuteStmt(const SqlStatementID& stId, const SqlStmtParameters& params )
+bool SqlConnection::executeStmt( const SqlStatementID& stId, const SqlStmtParameters& params )
 {
 	if(!stId.isInitialized())
 		return false;
 
 	//get prepared statement object
-	SqlPreparedStatement* pStmt = GetStmt(stId);
+	SqlPreparedStatement* pStmt = getStmt(stId);
 	//bind parameters
 	pStmt->bind(params);
 	//execute statement
-	return pStmt->execute();
+	try { return pStmt->execute(); }
+	catch(const SqlException& e)
+	{
+		if (e.isConnLost() || e.isRepeatable())
+		{
+			//destroy prepared statement since there was an error in its execution
+			_stmtHolder.releasePrepStmtObj(stId.getId());
+		}
+
+		//retry or log error as usual
+		throw e;
+	}
 }
 
-unsigned long SqlConnection::escape_string( char* to, const char* from, unsigned long length )
+size_t SqlConnection::escapeString( char* to, const char* from, size_t length ) const
 {
 	strncpy(to,from,length); 
 	return length;
 }
 
-bool SqlConnection::BeginTransaction()
+bool SqlConnection::transactionStart()
 {
 	return true;
 }
 
-bool SqlConnection::CommitTransaction()
+bool SqlConnection::transactionCommit()
 {
 	return true;
 }
 
-bool SqlConnection::RollbackTransaction()
+bool SqlConnection::transactionRollback()
 {
 	return true;
 }
 
 void SqlConnection::StmtHolder::clear()
 {
-	for (StatementObjMap::iterator it=_map.begin();it!=_map.end();++it)
-		delete it->second;
-
-	_map.clear();
+	_storage.clear();
 }
 
 SqlPreparedStatement* SqlConnection::StmtHolder::getPrepStmtObj( UInt32 stmtId ) const
 {
-	StatementObjMap::const_iterator iter = _map.find(stmtId);
-	if(iter == _map.end())
-		return NULL;
+	if (stmtId < 1)
+		return nullptr;
+
+	size_t idx = stmtId-1;
+
+	if (idx < _storage.size())
+		return _storage[idx].get();
 	else
-		return iter->second;
+		return nullptr;
 }
 
 void SqlConnection::StmtHolder::insertPrepStmtObj( UInt32 stmtId, SqlPreparedStatement* stmtObj )
 {
-	StatementObjMap::iterator iter = _map.find(stmtId);
-	if(iter != _map.end())
-		delete iter->second;
+	if (stmtId < 1)
+		poco_bugcheck_msg("Trying to insert uninitialized stmt into conn");
 
-	_map[stmtId] = stmtObj;
+	size_t idx = stmtId-1;
+	if (idx >= _storage.size())
+		_storage.resize(idx+1);
+
+	if (_storage[idx])
+		poco_bugcheck_msg("Inserting conn stmt into already occupied slot");
+
+	_storage[idx].reset(stmtObj);
+}
+
+unique_ptr<SqlPreparedStatement> SqlConnection::StmtHolder::releasePrepStmtObj( UInt32 stmtId )
+{
+	if (stmtId < 1)
+		return nullptr;
+
+	size_t idx = stmtId-1;
+	if (idx >= _storage.size())
+		return nullptr;
+
+	return std::move(_storage[idx]);
 }

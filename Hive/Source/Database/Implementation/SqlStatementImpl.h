@@ -27,12 +27,13 @@ class SqlStatementImpl : public SqlStatement
 public:
 	SqlStatementImpl(const SqlStatementImpl& index)
 	{
-		m_index = index.m_index;
-		m_pDB = index.m_pDB;
-		m_pParams = NULL;
+		_stmtId = index._stmtId;
+		_dbEngine = index._dbEngine;
 
-		if(index.m_pParams)
-			m_pParams = new SqlStmtParameters(*(index.m_pParams));
+		if(index._params.boundParams() > 0)
+			_params = index._params;
+		else
+			_params.reset(_stmtId.numArgs());
 	}
 	virtual ~SqlStatementImpl()
 	{
@@ -42,40 +43,36 @@ public:
 	{
 		if(this != &index)
 		{
-			m_index = index.m_index;
-			m_pDB = index.m_pDB;
+			_stmtId = index._stmtId;
+			_dbEngine = index._dbEngine;
 
-			if(m_pParams)
-			{
-				delete m_pParams;
-				m_pParams = NULL;
-			}
-
-			if(index.m_pParams)
-				m_pParams = new SqlStmtParameters(*(index.m_pParams));
+			if(index._params.boundParams() > 0)
+				_params = index._params;
+			else
+				_params.reset(_stmtId.numArgs());
 		}
 
 		return *this;
 	}
-	bool Execute();
-	bool DirectExecute();
+	bool execute();
+	bool directExecute();
 protected:
 	//don't allow anyone except Database class to create static SqlStatement objects
 	friend class ConcreteDatabase;
 	SqlStatementImpl(const SqlStatementID& index, ConcreteDatabase& db) 
 	{
-		m_index = index;
-		m_pDB = &db;
-		m_pParams = NULL;
+		_stmtId = index;
+		_dbEngine = &db;
+		_params.reset(_stmtId.numArgs());
 	}
 private:
-	SqlStmtParameters* detach()
+	inline SqlStmtParameters detach()
 	{
-		SqlStmtParameters* p = m_pParams ? m_pParams : new SqlStmtParameters(0);
-		m_pParams = NULL;
-		return p;
+		SqlStmtParameters retVal;
+		_params.swap(retVal);
+		return retVal;
 	}
-	void VerifyNumBoundParams( SqlStmtParameters* args );
+	void verifyNumBoundParams(const SqlStmtParameters& args);
 
-	ConcreteDatabase* m_pDB;
+	ConcreteDatabase* _dbEngine;
 };

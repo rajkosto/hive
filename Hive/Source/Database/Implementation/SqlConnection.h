@@ -19,74 +19,98 @@
 #pragma once
 
 #include "Shared/Common/Types.h"
+#include "Shared/Common/Exception.h"
 
+#include <boost/noncopyable.hpp>
 #include <Poco/Mutex.h>
 
+#include "SqlPreparedStatement.h"
+
 class Database;
+class ConcreteDatabase;
 class QueryResult;
 class QueryNamedResult;
-class SqlPreparedStatement;
 class SqlStatementID;
 class SqlStmtParameters;
 
-//
-class SqlConnection
+class SqlConnection : public boost::noncopyable
 {
 public:
+	class SqlException : public Poco::Exception
+	{
+	public:
+		SqlException(int code, const std::string& descr, const char* func, bool connLost = false, bool repeatable = false, std::string query = "")
+			: Poco::Exception(descr,code), _query(std::move(query)), _function(func), _connLost(connLost), _repeatable(repeatable) {}
+
+		int getCode() const { return this->code(); }
+		const std::string getDescr() const { return this->message(); }
+		const char* getFunction() const { return _function; }
+		const std::string& getQuery() const { return _query; }
+
+		bool isConnLost() const { return _connLost; }
+		bool isRepeatable() const { return _repeatable; }
+
+		void toStream(std::ostream& ostr) const;
+		std::string toString() const;
+		void toLog(Poco::Logger& logger) const;
+	private:
+		std::string _query;
+		const char* _function;
+		bool _connLost;
+		bool _repeatable;
+	};
+	
 	virtual ~SqlConnection() {}
 
-	//method for initializing DB connection
-	virtual bool Initialize(const std::string& infoString) = 0;
+	//called to make sure we are connected (after it breaks, etc)
+	virtual void connect() = 0;
+
 	//public methods for making queries
-	virtual QueryResult* Query(const char* sql) = 0;
-	virtual QueryNamedResult* QueryNamed(const char* sql) = 0;
+	virtual unique_ptr<QueryResult> query(const char* sql) = 0;
+	virtual unique_ptr<QueryNamedResult> namedQuery(const char* sql) = 0;
 
 	//public methods for making requests
-	virtual bool Execute(const char* sql) = 0;
+	virtual bool execute(const char* sql) = 0;
 
 	//escape string generation
-	virtual unsigned long escape_string(char* to, const char* from, unsigned long length);
+	virtual size_t escapeString(char* to, const char* from, size_t length) const;
 
-	// nothing do if DB not support transactions
-	virtual bool BeginTransaction();
-	virtual bool CommitTransaction();
-	// can't rollback without transaction support
-	virtual bool RollbackTransaction();
+	//nothing do if DB doesn't support transactions
+	virtual bool transactionStart();
+	virtual bool transactionCommit();
+	//can't rollback without transaction support
+	virtual bool transactionRollback();
 
 	//methods to work with prepared statements
-	bool ExecuteStmt(const SqlStatementID& stId, const SqlStmtParameters& id);
+	bool executeStmt(const SqlStatementID& stId, const SqlStmtParameters& id);
 
 	//SqlConnection object lock
 	class Lock
 	{
 	public:
-		Lock(SqlConnection* conn) : m_pConn(conn) { m_pConn->m_mutex.lock(); }
-		~Lock() { m_pConn->m_mutex.unlock(); }
+		Lock(SqlConnection& conn) : _lockedConn(conn) { _lockedConn._connLock.lock(); }
+		~Lock() { _lockedConn._connLock.unlock(); }
 
-		SqlConnection* operator->() const { return m_pConn; }
-
+		SqlConnection* operator->() const { return &_lockedConn; }
 	private:
-		SqlConnection* const m_pConn;
+		SqlConnection& _lockedConn;
 	};
 
-	//get DB object
-	Database& DB() { return m_db; }
-
-protected:
-	SqlConnection(Database& db) : m_db(db) {}
-
-	virtual SqlPreparedStatement* CreateStatement(const std::string& fmt);
+	ConcreteDatabase& getDB() { return *_dbEngine; }
 	//allocate and return prepared statement object
-	SqlPreparedStatement* GetStmt(const SqlStatementID& stId);
+	SqlPreparedStatement* getStmt(const SqlStatementID& stId);
+protected:
+	SqlConnection(ConcreteDatabase& db) : _dbEngine(&db) {}
+	ConcreteDatabase* _dbEngine;
 
-	Database& m_db;
-
+	//make connection-specific prepared statement obj
+	virtual SqlPreparedStatement* createPreparedStatement(const char* sqlText);
 	//clear any state (because of reconnects, etc)
 	virtual void clear();
 
 private:
 	typedef Poco::FastMutex ConnLockType;
-	ConnLockType m_mutex;
+	ConnLockType _connLock;
 
 	class StmtHolder
 	{
@@ -99,8 +123,9 @@ private:
 
 		SqlPreparedStatement* getPrepStmtObj(UInt32 stmtId) const;
 		void insertPrepStmtObj(UInt32 stmtId, SqlPreparedStatement* stmtObj);
+		unique_ptr<SqlPreparedStatement> releasePrepStmtObj(UInt32 stmtId);
 	private:
-		typedef boost::unordered_map<UInt32,SqlPreparedStatement*> StatementObjMap;
-		StatementObjMap _map;
-	} m_stmtHolder;
+		typedef std::vector< unique_ptr<SqlPreparedStatement> > StatementObjVect;
+		StatementObjVect _storage;
+	} _stmtHolder;
 };

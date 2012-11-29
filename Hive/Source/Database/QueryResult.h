@@ -20,60 +20,68 @@
 
 #include "Shared/Common/Types.h"
 #include "Shared/Common/Exception.h"
+#include <boost/noncopyable.hpp>
+
 #include "Field.h"
 
-class QueryResult
+class QueryResult : public boost::noncopyable
 {
 public:
-	QueryResult(UInt64 rowCount, UInt32 fieldCount) : mFieldCount(fieldCount), mRowCount(rowCount) {}
 	virtual ~QueryResult() {}
 
-	virtual bool NextRow() = 0;
+	//call before accessing, to populate the row.
+	//false return value means that there's no more rows
+	virtual bool fetchRow() = 0;
 
-	Field *Fetch() const { return mCurrentRow; }
+	virtual const vector<Field>& fields() const = 0;
 
-	const Field & operator [] (int index) const { return mCurrentRow[index]; }
+	const Field& at(size_t idx) const
+	{
+		if (idx < fields().size())
+			return fields()[idx];
+		else
+			return _dummyField;
+	}
+	const Field& operator [] (size_t idx) const { return at(idx); }
 
-	UInt32 GetFieldCount() const { return mFieldCount; }
-	UInt64 GetRowCount() const { return mRowCount; }
+	virtual size_t numFields() const = 0;
+	//this will also return number of affected rows for non-SELECT statements
+	virtual UInt64 numRows() const = 0;
 
 protected:
-	Field* mCurrentRow;
-	UInt32 mFieldCount;
-	UInt64 mRowCount;
+	Field _dummyField;
 };
 
 typedef std::vector<std::string> QueryFieldNames;
 
-class QueryNamedResult
+class QueryNamedResult : public QueryResult
 {
 public:
-	explicit QueryNamedResult(QueryResult* query, QueryFieldNames const& names) : mQuery(query), mFieldNames(names) {}
-	~QueryNamedResult() { delete mQuery; }
+	QueryNamedResult(unique_ptr<QueryResult> query, const QueryFieldNames& names) : _actualRes(std::move(query)), _fieldNames(names) {}
+	~QueryNamedResult() {}
 
-	// compatible interface with QueryResult
-	bool NextRow() { return mQuery->NextRow(); }
-	Field *Fetch() const { return mQuery->Fetch(); }
-	UInt32 GetFieldCount() const { return mQuery->GetFieldCount(); }
-	UInt64 GetRowCount() const { return mQuery->GetRowCount(); }
-	Field const& operator[] (int index) const { return (*mQuery)[index]; }
+	bool fetchRow() override { return _actualRes->fetchRow(); }
+	const vector<Field>& fields() const override { return _actualRes->fields(); }
 
-	// named access
-	Field const& operator[] (const std::string& name) const { return mQuery->Fetch()[GetField_idx(name)]; }
-	QueryFieldNames const& GetFieldNames() const { return mFieldNames; }
+	size_t numFields() const override { return _actualRes->numFields(); }
+	UInt64 numRows() const override { return _actualRes->numRows(); }
 
-	UInt32 GetField_idx(const std::string &name) const
+	//named access
+	const Field& operator[] (const std::string& name) const { return (*_actualRes)[fieldIdx(name)]; }
+	const QueryFieldNames& fieldNames() const { return _fieldNames; }
+
+	size_t fieldIdx(const std::string& name) const
 	{
-		for(size_t idx = 0; idx < mFieldNames.size(); ++idx)
+		for(size_t idx=0; idx<_fieldNames.size(); idx++)
 		{
-			if(mFieldNames[idx] == name)
+			if(_fieldNames[idx] == name)
 				return idx;
 		}
 		poco_bugcheck_msg("unknown field name");
-		return UInt32(-1);
+		return size_t(-1);
 	}
 
 protected:
-	QueryResult *mQuery;
-	QueryFieldNames mFieldNames;
+	unique_ptr<QueryResult> _actualRes;
+	QueryFieldNames _fieldNames;
 };

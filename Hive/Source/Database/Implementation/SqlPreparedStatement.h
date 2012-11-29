@@ -19,14 +19,10 @@
 #pragma once
 
 #include "Shared/Common/Types.h"
-#include "Database/SqlStatement.h"
 
-#include <stdexcept>
-#include <sstream>
-
-class Database;
 class SqlConnection;
-class QueryResult;
+class SqlStmtField;
+class SqlStmtParameters;
 
 //base prepared statement class
 class SqlPreparedStatement
@@ -34,49 +30,64 @@ class SqlPreparedStatement
 public:
 	virtual ~SqlPreparedStatement() {}
 
-	bool isPrepared() const { return m_bPrepared; }
-	bool isQuery() const { return m_bIsQuery; }
+	bool isPrepared() const { return _prepared; }
+	bool isQuery() const { return _isQuery; }
 
-	UInt32 params() const { return m_nParams; }
-	UInt32 columns() const { return isQuery() ? m_nColumns : 0; }
+	size_t numParams() const { return _numParams; }
+	size_t numColumns() const { return isQuery()?_numColumns:0; }
 
 	//initialize internal structures of prepared statement
-	//upon success m_bPrepared should be true
-	virtual bool prepare() = 0;
+	//upon success _prepared should be true
+	virtual void prepare() = 0;
 	//bind parameters for prepared statement from parameter placeholder
 	virtual void bind(const SqlStmtParameters& holder) = 0;
 
 	//execute statement w/o result set
 	virtual bool execute() = 0;
 
-protected:
-	SqlPreparedStatement(const std::string& fmt, SqlConnection& conn) : m_szFmt(fmt), m_nParams(0), m_nColumns(0), m_bPrepared(false), m_bIsQuery(false), m_pConn(conn) {}
+	virtual int lastError() const { return 0; }
+	virtual std::string lastErrorDescr() const { return ""; }
 
-	UInt32 m_nParams;
-	UInt32 m_nColumns;
-	bool m_bIsQuery;
-	bool m_bPrepared;
-	std::string m_szFmt;
-	SqlConnection& m_pConn;
+	virtual std::string getSqlString(bool withValues=false) const 
+	{
+		if (_stmtLen > 0)
+			return std::string(_stmtSql,_stmtLen);
+
+		return "";
+	}
+protected:
+	SqlPreparedStatement(const char* sqlText, SqlConnection& conn);
+
+	size_t _numParams;
+	size_t _numColumns;
+
+	bool _isQuery;
+	bool _prepared;
+
+	const char* _stmtSql;
+	size_t _stmtLen;
+
+	SqlConnection& _conn;
 };
 
 //prepared statements via plain SQL string requests
 class SqlPlainPreparedStatement : public SqlPreparedStatement
 {
 public:
-	SqlPlainPreparedStatement(const std::string& fmt, SqlConnection& conn);
+	SqlPlainPreparedStatement(const char* sqlText, SqlConnection& conn);
 	~SqlPlainPreparedStatement() {}
 
-	//this statement is always prepared
-	virtual bool prepare() { return true; }
+	//nothing to do, we already have the query string
+	void prepare() override;
 
 	//we should replace all '?' symbols with substrings with proper format
-	virtual void bind(const SqlStmtParameters& holder);
+	void bind(const SqlStmtParameters& holder) override;
 
-	virtual bool execute();
+	bool execute() override;
 
+	std::string getSqlString(bool withValues=false) const override;
 protected:
-	void DataToString(const SqlStmtFieldData& data, std::ostringstream& fmt);
+	void dataToString(const SqlStmtField& data, std::ostringstream& fmt) const;
 
-	std::string m_szPlainRequest;
+	std::string _preparedSql;
 };

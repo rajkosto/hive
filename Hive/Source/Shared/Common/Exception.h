@@ -27,10 +27,10 @@ class GenericException : public ExceptType
 {
 public:
 	GenericException(const char* staticName) : ExceptType(staticName) {}
-	virtual ~GenericException() {}
+	virtual ~GenericException() throw() {}
 
 	virtual std::string toString() const = 0;
-	const char* what() const { _str = this->toString(); return _str.c_str(); }
+	const char* what() const throw() { _str = this->toString(); return _str.c_str(); }
 	void print(Poco::Logger& logger) const { logger.error(this->toString()); }
 	void print(std::ostream& out) const { out << this->toString() << std::endl; }
 private:
@@ -62,3 +62,4 @@ class API CLS: public BASE																				\
 
 #define POCO_DEFINE_EXCEPTION(API, CLS, BASE, NAME) \
 	POCO_DEFINE_EXCEPTION_CODE(API, CLS, BASE, 0, NAME)
+

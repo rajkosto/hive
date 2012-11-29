@@ -28,11 +28,11 @@ public:
 	enum DBType
 	{
 		DBTYPE_MYSQL,
-		DBTYPE_POSTGRESQL
 	};
 	static shared_ptr<Database> create(DBType dbType);
 	static shared_ptr<Database> create(Poco::Util::AbstractConfiguration* dbConfig);
-	static string makeInitString(Poco::Util::AbstractConfiguration* dbConfig, string defUser = "root", string defPass = "", string defDbName = "dayz", string defDbHost = "localhost");
-	static string makeInitString(string host, string socket_or_port, string username, string password, string database);
+	static string makeInitString(Poco::Util::AbstractConfiguration* dbConfig, 
+		const string& defUser = "root", const string& defPass = "", const string& defDbName = "dayz", const string& defDbHost = "localhost");
+	static string makeInitString(const string& host, const string& socket_or_port, const string& username, const string& password, const string& database);
 	POCO_DEFINE_EXCEPTION(,CreationError,Poco::LogicException,"Cannot create database");
 };

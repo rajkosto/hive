@@ -23,6 +23,8 @@
 class ObjDataSource
 {
 public:
+	virtual ~ObjDataSource() {}
+
 	typedef std::queue<Sqf::Parameters> ServerObjectsQueue;
 	virtual void populateObjects( int serverId, ServerObjectsQueue& queue ) = 0;
 

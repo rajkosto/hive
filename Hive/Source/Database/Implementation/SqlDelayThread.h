@@ -30,24 +30,26 @@ class SqlDelayThread : public Poco::Runnable
 protected:
 	typedef tbb::concurrent_queue<SqlOperation*> SqlQueue;
 
-	SqlQueue m_sqlQueue;                                ///< Queue of SQL statements
-	Database* m_dbEngine;                               ///< Pointer to used Database engine
-	SqlConnection* m_dbConnection;                     ///< Pointer to DB connection
-	volatile bool m_running;
+	SqlQueue _sqlQueue;			//Queue of SQL statements
+	Database& _dbEngine;		//Pointer to used Database engine
+	SqlConnection& _dbConn;		//Pointer to DB connection
+	volatile bool _isRunning;
 
 	//process all enqueued requests
-	void ProcessRequests();
+	virtual void processRequests();
 public:
-	SqlDelayThread(Database* db, SqlConnection* conn);
-	~SqlDelayThread();
+	SqlDelayThread(Database& db, SqlConnection& conn);
+	virtual ~SqlDelayThread();
 
-	///< Put sql statement to delay queue
-	bool Delay(SqlOperation* sql) 
+	//Put sql statement to delay queue
+	bool queueOperation(SqlOperation* sql) 
 	{
-		m_sqlQueue.push(sql);
+		_sqlQueue.push(sql);
 		return true; 
 	}
 
-	virtual void Stop();                                ///< Stop event
-	virtual void run();                                 ///< Main Thread loop
+	//Send stop event
+	virtual void stop();
+	//Main Thread loop
+	void run() override;
 };

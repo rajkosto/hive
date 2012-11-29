@@ -23,6 +23,8 @@
 class CharDataSource
 {
 public:
+	virtual ~CharDataSource() {}
+
 	virtual Sqf::Value fetchCharacterInitial( string playerId, int serverId, const string& playerName ) = 0;
 	virtual Sqf::Value fetchCharacterDetails( int characterId ) = 0;
 	typedef map<string,Sqf::Value> FieldsType;

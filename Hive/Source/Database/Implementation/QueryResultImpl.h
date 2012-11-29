@@ -16,19 +16,22 @@
 * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 */
 
-#ifdef MYSQL_ENABLED
+#pragma once
 
-#include "MySQLDelayThread.h"
-#include "DatabaseMysql.h"
+#include "Database/QueryResult.h"
 
-void MySQLDelayThread::run()
+class QueryResultImpl : public QueryResult
 {
-	DatabaseMysql* mysqlDb = dynamic_cast<DatabaseMysql*>(m_dbEngine);
-	poco_assert(mysqlDb);
+public:
+	QueryResultImpl(UInt64 rowCount, size_t fieldCount) : _row(fieldCount), _numFields(fieldCount), _numRows(rowCount) {}
+	~QueryResultImpl() {}
 
-	mysqlDb->ThreadStart();
-	SqlDelayThread::run();
-	mysqlDb->ThreadEnd();
-}
+	const vector<Field>& fields() const override { return _row;	}
 
-#endif
+	size_t numFields() const override { return _numFields; }
+	UInt64 numRows() const override { return _numRows; }
+protected:
+	vector<Field> _row;
+	size_t _numFields;
+	UInt64 _numRows;
+};

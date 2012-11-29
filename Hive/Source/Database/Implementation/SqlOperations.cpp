@@ -25,82 +25,75 @@
 #include <Poco/Logger.h>
 #include <Poco/Format.h>
 
-/// ---- ASYNC STATEMENTS / TRANSACTIONS ----
-bool SqlPlainRequest::Execute(SqlConnection* conn)
+#include "ConcreteDatabase.h"
+#include "RetrySqlOp.h"
+
+
+// ---- ASYNC STATEMENTS / TRANSACTIONS ----
+bool SqlOperation::execute( SqlConnection& sqlConn )
 {
-	/// just do it
-	SqlConnection::Lock guard(conn);
-	return conn->Execute(_sql.c_str());
+	SqlConnection::Lock guard(sqlConn);
+	return rawExecute(sqlConn);
+}
+
+bool SqlPlainRequest::rawExecute(SqlConnection& sqlConn)
+{
+	//just do it
+	return Retry::SqlOp<bool>(sqlConn.getDB().getLogger(),[&](SqlConnection& c){ return c.execute(_sql.c_str()); })(sqlConn,"PlainRequest",[&](){ return _sql; });
 }
 
 SqlTransaction::~SqlTransaction()
 {
 	while(!_queue.empty())
-	{
-		delete _queue.back();
 		_queue.pop_back();
-	}
 }
 
-bool SqlTransaction::Execute(SqlConnection *conn)
+bool SqlTransaction::rawExecute(SqlConnection& sqlConn)
 {
 	if(_queue.empty())
 		return true;
 
-	SqlConnection::Lock guard(conn);
+	sqlConn.transactionStart();
 
-	conn->BeginTransaction();
-
-	const int nItems = _queue.size();
-	for (int i = 0; i < nItems; ++i)
+	const size_t nItems = _queue.size();
+	for (size_t i=0; i<nItems; i++)
 	{
-		SqlOperation * pStmt = _queue[i];
+		SqlOperation& stmt = _queue[i];
 
-		if(!pStmt->Execute(conn))
+		if(!stmt.rawExecute(sqlConn))
 		{
-			conn->RollbackTransaction();
+			sqlConn.transactionRollback();
 			return false;
 		}
 	}
 
-	return conn->CommitTransaction();
+	return sqlConn.transactionCommit();
 }
 
-SqlPreparedRequest::SqlPreparedRequest(const SqlStatementID& stId, SqlStmtParameters* arg) : _id(stId), _params(arg)
+bool SqlPreparedRequest::rawExecute(SqlConnection& sqlConn)
 {
+	return Retry::SqlOp<bool>(sqlConn.getDB().getLogger(),[&](SqlConnection& c){ return c.executeStmt(_id, _params); })(sqlConn,"PreparedRequest",[&](){ return sqlConn.getStmt(_id)->getSqlString(true); });
 }
 
-SqlPreparedRequest::~SqlPreparedRequest()
-{
-	delete _params;
-}
-
-bool SqlPreparedRequest::Execute( SqlConnection* conn )
-{
-	SqlConnection::Lock guard(conn);
-	return conn->ExecuteStmt(_id, *_params);
-}
-
-/// ---- ASYNC QUERIES ----
-bool SqlQuery::Execute(SqlConnection* conn)
+// ---- ASYNC QUERIES ----
+bool SqlQuery::rawExecute(SqlConnection& sqlConn)
 {
 	if(!_queue)
 		return false;
 
-	SqlConnection::Lock guard(conn);
-	/// execute the query and store the result in the callback
-	QueryResult* res = conn->Query(_sql.c_str());
-	_callback.setResult(res);
-	/// add the callback to the sql result queue of the thread it originated from
+	//execute the query and store the result in the callback
+	auto res = Retry::SqlOp< unique_ptr<QueryResult> >(sqlConn.getDB().getLogger(),[&](SqlConnection& c){ return c.query(_sql.c_str()); })(sqlConn);
+	_callback.setResult(res.release());
+	//add the callback to the sql result queue of the thread it originated from
 	_queue->push(_callback);
 
 	return true;
 }
 
-void SqlResultQueue::Update()
+void SqlResultQueue::processCallbacks()
 {
-	/// execute the callbacks waiting in the synchronization queue
+	//execute the callbacks waiting in the synchronization queue
 	QueryCallback callMe;
 	while (this->try_pop(callMe))
-		callMe.execute();
+		callMe.invoke();
 }

@@ -22,9 +22,10 @@
 #include "Database/Callback.h"
 #include "Database/SqlStatement.h"
 
+#include <boost/ptr_container/ptr_vector.hpp>
 #include <tbb/concurrent_queue.h>
 
-/// ---- BASE ---
+// ---- BASE ---
 
 class Database;
 class SqlConnection;
@@ -34,70 +35,74 @@ class SqlStmtParameters;
 class SqlOperation
 {
 public:
-	virtual void OnRemove() { delete this; }
-	virtual bool Execute(SqlConnection* conn) = 0;
+	virtual void onRemove() { delete this; }
+	bool execute(SqlConnection& sqlConn);
 	virtual ~SqlOperation() {}
+protected:
+	friend class SqlTransaction;
+	virtual bool rawExecute(SqlConnection& sqlConn) = 0;
 };
 
-/// ---- ASYNC STATEMENTS / TRANSACTIONS ----
+// ---- ASYNC STATEMENTS / TRANSACTIONS ----
 
 class SqlPlainRequest : public SqlOperation
 {
+public:
+	SqlPlainRequest(std::string sql) : _sql(std::move(sql)) {};
+	~SqlPlainRequest() {};
+protected:
+	bool rawExecute(SqlConnection& sqlConn) override;
 private:
 	std::string _sql;
-public:
-	SqlPlainRequest(std::string sql) : _sql(sql) {};
-	~SqlPlainRequest() {};
-	bool Execute(SqlConnection *conn);
 };
 
 class SqlTransaction : public SqlOperation
 {
-private:
-	std::vector<SqlOperation*> _queue;
-
 public:
 	SqlTransaction() {}
 	~SqlTransaction();
 
-	void DelayExecute(SqlOperation* sql)   { _queue.push_back(sql); }
-	bool Execute(SqlConnection* conn);
+	void queueOperation(SqlOperation* sql) { _queue.push_back(sql); }
+protected:
+	bool rawExecute(SqlConnection& sqlConn) override;
+private:
+	boost::ptr_vector<SqlOperation> _queue;
 };
 
 class SqlPreparedRequest : public SqlOperation
 {
 public:
-	SqlPreparedRequest(const SqlStatementID& stId, SqlStmtParameters* arg);
-	~SqlPreparedRequest();
-
-	bool Execute(SqlConnection* conn);
-
+	SqlPreparedRequest(const SqlStatementID& stId, SqlStmtParameters& arg) : _id(stId) { _params.swap(arg); }
+	~SqlPreparedRequest() {}
+protected:
+	bool rawExecute(SqlConnection& sqlConn) override;
 private:
 	SqlStatementID _id;
-	SqlStmtParameters* _params;
+	SqlStmtParameters _params;
 };
 
-/// ---- ASYNC QUERIES ----
+// ---- ASYNC QUERIES ----
 
-class SqlQuery;                                             /// contains a single async query
-class QueryResult;                                          /// the result of one
-class SqlResultQueue;                                       /// queue for thread sync
+class SqlQuery;			//contains a single async query
+class QueryResult;		//the result of one
+class SqlResultQueue;	//queue for thread sync
 
 class SqlResultQueue : public tbb::concurrent_queue<QueryCallback>
 {
 public:
 	SqlResultQueue() {}
-	void Update();
+	void processCallbacks();
 };
 
 class SqlQuery : public SqlOperation
 {
+public:
+	SqlQuery(std::string sql, QueryCallback callback, SqlResultQueue& queue) : _sql(std::move(sql)), _callback(callback), _queue(&queue) {};
+	~SqlQuery() {};
+protected:
+	bool rawExecute(SqlConnection& sqlConn) override;
 private:
 	std::string _sql;
 	QueryCallback _callback;
 	SqlResultQueue* _queue;
-public:
-	SqlQuery(std::string sql, QueryCallback callback, SqlResultQueue* queue) : _sql(sql), _callback(callback), _queue(queue) {};
-	~SqlQuery() {};
-	bool Execute(SqlConnection* conn);
 };

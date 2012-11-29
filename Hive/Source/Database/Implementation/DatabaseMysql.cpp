@@ -20,11 +20,6 @@
 
 #include "DatabaseMysql.h"
 #include "QueryResultMysql.h"
-#include "MySQLDelayThread.h"
-
-
-#include "Shared/Common/Timer.h"
-#include "Shared/Common/Exception.h"
 
 #include <Poco/Logger.h>
 #include <Poco/Format.h>
@@ -34,12 +29,12 @@
 
 size_t DatabaseMysql::db_count = 0;
 
-void DatabaseMysql::ThreadStart()
+void DatabaseMysql::threadEnter()
 {
 	mysql_thread_init();
 }
 
-void DatabaseMysql::ThreadEnd()
+void DatabaseMysql::threadExit()
 {
 	mysql_thread_end();
 }
@@ -47,10 +42,10 @@ void DatabaseMysql::ThreadEnd()
 DatabaseMysql::DatabaseMysql()
 {
 	// before first connection
-	if( db_count++ == 0 )
+	if (db_count++ == 0)
 	{
 		// Mysql Library Init
-		mysql_library_init(-1, NULL, NULL);
+		mysql_library_init(-1, nullptr, nullptr);
 
 		if (!mysql_thread_safe())
 			poco_bugcheck_msg("FATAL ERROR: Used MySQL library isn't thread-safe.");
@@ -59,105 +54,92 @@ DatabaseMysql::DatabaseMysql()
 
 DatabaseMysql::~DatabaseMysql()
 {
-	StopServer();
+	stopServer();
 
 	//Free Mysql library pointers for last ~DB
-	if(--db_count == 0)
+	if (--db_count == 0)
 		mysql_library_end();
 }
 
 
-SqlDelayThread* DatabaseMysql::CreateDelayThread()
+unique_ptr<SqlConnection> DatabaseMysql::createConnection(const std::string& infoString)
 {
-	assert(m_pAsyncConn);
-	return new MySQLDelayThread(this, m_pAsyncConn);
+	return unique_ptr<SqlConnection>(new MySQLConnection(*this,infoString));
 }
 
-SqlConnection* DatabaseMysql::CreateConnection()
-{
-	return new MySQLConnection(*this);
-}
-
-std::string DatabaseMysql::like() const 
+std::string DatabaseMysql::sqlLike() const 
 {
 	return "LIKE";
 }
 
-std::string DatabaseMysql::table_sim( const std::string& tableName ) const 
+std::string DatabaseMysql::sqlTableSim( const std::string& tableName ) const 
 {
 	char tempBuf[256];
 	sprintf(tempBuf,"`%s`",tableName.c_str());
 	return string(tempBuf,2+tableName.length());
 }
 
-std::string DatabaseMysql::concat( const std::string& a, const std::string& b, const std::string& c ) const 
+std::string DatabaseMysql::sqlConcat( const std::string& a, const std::string& b, const std::string& c ) const 
 {
 	char tempBuf[512];
 	sprintf(tempBuf,"CONCAT( %s , %s , %s )",a.c_str(),b.c_str(),c.c_str());
 	return string(tempBuf,16+a.length()+b.length()+c.length());
 }
 
-std::string DatabaseMysql::offset() const 
+std::string DatabaseMysql::sqlOffset() const 
 {
 	return "LIMIT %d,1";
 }
 
-MySQLConnection::MySQLConnection( Database& db ) : SqlConnection(db), mMysql(NULL), _logger(db.CreateLogger("MySQLConnection")) {}
-
-MySQLConnection::~MySQLConnection()
+MySQLConnection::MySQLConnection( ConcreteDatabase& db, const std::string& infoString ) 
+	: SqlConnection(db), _myConn(nullptr)
 {
-	if (mMysql)
-		mysql_close(mMysql);
-}
-
-bool MySQLConnection::Initialize(const std::string& infoString)
-{
-	MYSQL* mysqlInit = mysql_init(NULL);
-	if (!mysqlInit)
+	_myHandle = mysql_init(nullptr);
+	poco_assert(_myHandle != nullptr);
 	{
-		_logger.error("Could not initialize MySQL connection");
-		return false;
+		//Set charset for the connection string
+		mysql_options(_myHandle,MYSQL_SET_CHARSET_NAME,"utf8");
+		//Disable automatic reconnection, we will do this manually (to re-create broken statements and such)
+		my_bool reconnect = 0;
+		mysql_options(_myHandle, MYSQL_OPT_RECONNECT, &reconnect);
 	}
 
-	typedef Poco::StringTokenizer Tokens;
-	Tokens tokens(infoString,";",Tokens::TOK_TRIM);
-
-	Tokens::Iterator iter = tokens.begin();
-
 	std::string port_or_socket;
+	{
+		typedef Poco::StringTokenizer Tokens;
+		Tokens tokens(infoString,";",Tokens::TOK_TRIM);
 
-	if(iter != tokens.end())
-		_host = *iter++;
-	if(iter != tokens.end())
-		port_or_socket = *iter++;
-	if(iter != tokens.end())
-		_user = *iter++;
-	if(iter != tokens.end())
-		_password = *iter++;
-	if(iter != tokens.end())
-		_database = *iter++;
+		Tokens::Iterator iter = tokens.begin();
 
-	//Set charset
-	mysql_options(mysqlInit,MYSQL_SET_CHARSET_NAME,"utf8");
-	//Disable automatic reconnection, we will do this manually (to re-create broken statements and such)
-	my_bool reconnect = 0;
-	mysql_options(mysqlInit, MYSQL_OPT_RECONNECT, &reconnect);
+		if(iter != tokens.end())
+			_host = *iter++;
+		if(iter != tokens.end())
+			port_or_socket = *iter++;
+		if(iter != tokens.end())
+			_user = *iter++;
+		if(iter != tokens.end())
+			_password = *iter++;
+		if(iter != tokens.end())
+			_database = *iter++;
+	}
 
-#ifdef WIN32
-	if(_host==".")                                           // named pipe use option (Windows)
+#ifdef _WIN32
+	//Windows named pipe option
+	if(_host==".")                                           
 	{
 		unsigned int opt = MYSQL_PROTOCOL_PIPE;
-		mysql_options(mysqlInit,MYSQL_OPT_PROTOCOL,(char const*)&opt);
+		mysql_options(_myHandle,MYSQL_OPT_PROTOCOL,(char const*)&opt);
 		_port = 0;
 		_unix_socket.clear();
 	}
-	else                                                    // generic case
+	else
 	{
 		_port = atoi(port_or_socket.c_str());
 		_unix_socket.clear();
 	}
 #else
-	if(_host==".")                                           // socket use option (Unix/Linux)
+	//Unix/Linux socket option
+	if(_host==".")
 	{
 		unsigned int opt = MYSQL_PROTOCOL_SOCKET;
 		mysql_options(mysqlInit,MYSQL_OPT_PROTOCOL,(char const*)&opt);
@@ -165,23 +147,92 @@ bool MySQLConnection::Initialize(const std::string& infoString)
 		_port = 0;
 		_unix_socket = port_or_socket;
 	}
-	else                                                    // generic case
+	else
 	{
 		_port = atoi(port_or_socket.c_str());
 		_unix_socket.clear();
 	}
 #endif
-
-	return (_Connect(mysqlInit) == 0);
 }
 
-int MySQLConnection::_Connect(MYSQL* mysqlInit) 
+MySQLConnection::~MySQLConnection()
+{
+	//Closing the handle returned by mysql_init closes the connection as well
+	if (_myHandle)
+		mysql_close(_myHandle);
+
+	_myConn = nullptr;
+	_myHandle = nullptr;
+}
+
+//Helper error status functions
+namespace
+{
+	bool IsConnectionErrFatal(unsigned int errNo)
+	{
+		static const unsigned int errs[] = {
+			1044, //ER_DBACCESS_DENIED_ERROR
+			1045, //ER_ACCESS_DENIED_ERROR
+			2001, //CR_SOCKET_CREATE_ERROR
+			2004, //CR_IPSOCK_ERROR
+			2007, //CR_VERSION_ERROR
+			2047, //CR_CONN_UNKNOW_PROTOCOL
+		};
+
+		if (std::find(begin(errs),end(errs),errNo) != end(errs))
+			return true;
+
+		return false;
+	}
+
+	bool IsConnectionLost(unsigned int errNo)
+	{
+		static const unsigned int errs[] = {
+			1317, //ER_QUERY_INTERRUPTED
+			2006, //CR_SERVER_GONE_ERROR
+			2013, //CR_SERVER_LOST
+			2027, //CR_MALFORMED_PACKET
+		};
+
+		if (std::find(begin(errs),end(errs),errNo) != end(errs))
+			return true;
+
+		return false;
+	}
+
+	std::pair<bool,bool> StmtErrorInfo(unsigned int errNo)
+	{
+		bool connLost = true;
+		bool stmtFatal = false;
+
+		if (!IsConnectionLost(errNo))
+		{
+			connLost = false;
+
+			static const unsigned int warns[] = {
+				1243, //ER_UNKNOWN_STMT_HANDLER
+				1210, //ER_WRONG_ARGUMENTS
+				2030, //CR_NO_PREPARE_STMT
+				2056, //CR_STMT_CLOSED
+				2057, //CR_NEW_STMT_METADATA
+			};
+
+			//any error other than these is fatal
+			if (std::find(begin(warns),end(warns),errNo) == end(warns))
+				stmtFatal = true;
+		}
+
+		return std::make_pair(connLost,stmtFatal);
+	}
+};
+
+void MySQLConnection::connect() 
 {
 	bool reconnecting = false;
-	if (mMysql != NULL) //reconnection attempt
+	if (_myConn != nullptr) //reconnection attempt
 	{
-		if (!mysql_ping(mMysql)) //ping ok
-			return 0; //already connected
+		if (!mysql_ping(_myConn)) //ping ok
+			return;
 		else
 			reconnecting = true;
 	}
@@ -189,32 +240,29 @@ int MySQLConnection::_Connect(MYSQL* mysqlInit)
 	//remove any state from previous session
 	this->clear();
 
+	Poco::Logger& logger = _dbEngine->getLogger();
 	for(;;)
 	{
-		const char* unix_socket = NULL;
+		const char* unix_socket = nullptr;
 		if (_unix_socket.length() > 0)
 			unix_socket = _unix_socket.c_str();
 
-		mMysql = mysql_real_connect(mysqlInit, _host.c_str(), _user.c_str(), _password.c_str(), _database.c_str(), _port, unix_socket, 0);
-		if (!mMysql)
+		_myConn = mysql_real_connect(_myHandle, _host.c_str(), _user.c_str(), _password.c_str(), _database.c_str(), _port, unix_socket, CLIENT_REMEMBER_OPTIONS);
+		if (!_myConn)
 		{
-			string actionToDo = (reconnecting)?string("reconnect"):string("connect");
+			const char* actionToDo = "connect";
+			if (reconnecting)
+				actionToDo = "reconnect";
 
-			_logger.error(Poco::format("Could not "+actionToDo+" to MySQL database at %s: %s",_host,string(mysql_error(mysqlInit))));
-			//see if we should fail completely
-			{
-				const unsigned int ER_DBACCESS_DENIED_ERROR = 1044;
-				const unsigned int ER_ACCESS_DENIED_ERROR = 1045;
-				unsigned int errNo = mysql_errno(mysqlInit);
-				if (errNo == ER_DBACCESS_DENIED_ERROR || errNo == ER_ACCESS_DENIED_ERROR)
-				{
-					mysql_close(mysqlInit);
-					return errNo;
-				}
-			}
-			long sleepTime = 1000;
-			_logger.information(Poco::format("Retrying in %d seconds",static_cast<int>(sleepTime/1000)));
+			unsigned int errNo = mysql_errno(_myHandle);
+			if (IsConnectionErrFatal(errNo))
+				throw SqlException(errNo,mysql_error(_myHandle),actionToDo);
+
+			static const long sleepTime = 1000;
+			logger.warning(Poco::format("Could not %s to MySQL database at %s: %s, retrying in %d seconds",
+				string(actionToDo),_host,string(mysql_error(_myHandle)),static_cast<int>(sleepTime/1000)));
 			Poco::Thread::sleep(sleepTime);
+
 			continue;
 		}
 		break;
@@ -222,462 +270,454 @@ int MySQLConnection::_Connect(MYSQL* mysqlInit)
 
 	string actionDone = (reconnecting)?string("Reconnected"):string("Connected");
 
-	poco_information(_logger,Poco::format(actionDone + " to MySQL database %s:%d/%s client ver: %s server ver: %s",
-		_host, _port,_database,
-		string(mysql_get_client_info()),
-		string(mysql_get_server_info(mMysql))
-		));
+	poco_information(logger,Poco::format( actionDone + " to MySQL database %s:%d/%s client ver: %s server ver: %s",
+		_host, _port,_database,string(mysql_get_client_info()),string(mysql_get_server_info(_myConn)) ));
 
-	/*----------SET AUTOCOMMIT ON---------*/
-	// LEAVE 'AUTOCOMMIT' MODE ALWAYS ENABLED!!!
-	// WITHOUT IT EVEN 'SELECT' QUERIES WOULD REQUIRE TO BE WRAPPED INTO 'START TRANSACTION'<>'COMMIT' CLAUSES!!!
-	if (!mysql_autocommit(mMysql, 1))
-		poco_trace(_logger,"Set autocommit to true");
+	//Autocommit should be ON because without it, MySQL would require everything to be wrapped into a transaction
+	if (!mysql_autocommit(_myConn, 1))
+		poco_trace(logger,"Set autocommit to true");
 	else
-		poco_error(_logger,"Failed to set autocommit to true");
-	/*-------------------------------------*/
+		poco_error(logger,"Failed to set autocommit to true");
 
-	// set connection properties to UTF8 to properly handle locales for different
-	// server configs - core sends data in UTF8, so MySQL must expect UTF8 too
-	if (!mysql_set_character_set(mMysql,"utf8"))
-		poco_trace(_logger,Poco::format("Character set changed to %s",std::string(mysql_character_set_name(mMysql))));
+	//set connection properties to UTF8 to properly handle locales for different server configs
+	//core sends data in UTF8, so MySQL must expect UTF8 too
+	if (!mysql_set_character_set(_myConn,"utf8"))
+		poco_trace(logger,Poco::format("Character set changed to %s",string(mysql_character_set_name(_myConn))));
 	else
-		poco_error(_logger,Poco::format("Failed to change charset, remains at %s",std::string(mysql_character_set_name(mMysql))));
-
-	return 0;
+		poco_error(logger,Poco::format("Failed to change charset, remains at %s",string(mysql_character_set_name(_myConn))));
 }
 
-
-bool MySQLConnection::_ConnectionLost(unsigned int errNo) const
+MYSQL_STMT* MySQLConnection::_MySQLStmtInit()
 {
-	const unsigned int CR_SERVER_GONE_ERROR = 2006;
-	const unsigned int CR_SERVER_LOST = 2013;
-	const unsigned int ER_QUERY_INTERRUPTED = 1317;
-
-	if (!errNo)
-		errNo = mysql_errno(mMysql);
-
-	if (errNo == CR_SERVER_GONE_ERROR || errNo == CR_SERVER_LOST || errNo == ER_QUERY_INTERRUPTED)
-		return true;
-
-	return false;
+	return mysql_stmt_init(_myConn);
 }
 
-bool MySQLConnection::_StmtFailed( MYSQL_STMT* stmt, bool* connLost ) const
+void MySQLConnection::_MySQLStmtPrepare(const SqlPreparedStatement& who, MYSQL_STMT* stmt, const char* sqlText, size_t textLen)
 {
-	const unsigned int ER_UNKNOWN_STMT_HANDLER = 1243;
-	const unsigned int ER_WRONG_ARGUMENTS = 1210;
-	const unsigned int CR_NO_PREPARE_STMT = 2030;
-	const unsigned int CR_STMT_CLOSED = 2056;
-	const unsigned int CR_NEW_STMT_METADATA = 2057;
-
-	if (connLost)
-		*connLost = false;
-
-	unsigned int errNo = mysql_stmt_errno(stmt);
-	if (_ConnectionLost(errNo))
+	int returnVal = mysql_stmt_prepare(stmt, sqlText, textLen);
+	if (returnVal)
 	{
-		if (connLost)
-			*connLost = true;
-
-		return true;
-	}
-
-	switch(errNo)
-	{
-	case ER_UNKNOWN_STMT_HANDLER:
-	case ER_WRONG_ARGUMENTS:
-	case CR_NO_PREPARE_STMT:
-	case CR_STMT_CLOSED:
-	case CR_NEW_STMT_METADATA:
-		return true;
-	default:
-		return false;
+		auto errInfo = StmtErrorInfo(who.lastError());
+		throw SqlException(who.lastError(),who.lastErrorDescr(),"MySQLStmtPrepare",errInfo.first,!errInfo.second,who.getSqlString());
 	}
 }
 
-MYSQL_STMT* MySQLConnection::MySQLStmtInit()
-{
-	return mysql_stmt_init(mMysql);
-}
-
-int MySQLConnection::MySQLStmtPrepare(MYSQL_STMT* stmt, const std::string& sql)
-{
-	int returnVal = 0;
-	bool stmtFail = false;
-	do 
-	{
-		bool connLost = false;
-		returnVal = mysql_stmt_prepare(stmt, sql.c_str(), sql.length());
-		stmtFail = (returnVal && _StmtFailed(stmt,&connLost));
-
-		if (connLost)
-		{
-			returnVal = _Connect(mMysql);
-			if (returnVal)
-				break;
-		}
-	} 
-	while (stmtFail);
-
-	return returnVal;
-}
-
-int MySQLConnection::MySQLStmtExecute(MYSQL_STMT* &stmt, const std::string& sql, MYSQL_BIND* params)
+void MySQLConnection::_MySQLStmtExecute(const SqlPreparedStatement& who, MYSQL_STMT* stmt)
 {
 	int returnVal = mysql_stmt_execute(stmt);
-	while(returnVal)
+	if (returnVal)
 	{
-		bool connLost = false;
-		bool stmtFail = _StmtFailed(stmt, &connLost);
-
-		if (!stmtFail)
-			break;
-
-		if (connLost)
-		{
-			returnVal = _Connect(mMysql);
-			if (returnVal)
-				break;
-		}
-
-		//stmt belonged to another connection, recreate
-		mysql_stmt_close(stmt);
-		stmt = this->MySQLStmtInit();
-		if (stmt == NULL)
-			return 1;
-
-		//gotta re-prepare
-		returnVal = mysql_stmt_prepare(stmt, sql.c_str(), sql.length());
-		if (returnVal) //re-prepare failed
-			continue;
-
-		//re-bind params
-		if (params != NULL)
-		{
-			returnVal = mysql_stmt_bind_param(stmt,params);
-			if (returnVal) //re-bind failed
-				continue;
-		}
-
-		//re-execute
-		returnVal = mysql_stmt_execute(stmt);
+		auto errInfo = StmtErrorInfo(who.lastError());		
+		throw SqlException(who.lastError(),who.lastErrorDescr(),"MySQLStmtExecute",errInfo.first,!errInfo.second,who.getSqlString(true));
 	}
-
-	return returnVal;
 }
 
-int MySQLConnection::_MySQLQuery(const char* sql)
+void MySQLConnection::_MySQLQuery(const char* sql)
 {
-	int returnVal;
-	bool connLost;
-	do
+	int returnVal = mysql_query(_myConn,sql);
+	if (returnVal)
 	{
-		returnVal = mysql_query(mMysql,sql);
-		connLost = returnVal && _ConnectionLost();
-
-		if (connLost)
-		{
-			returnVal = _Connect(mMysql);
-			if (returnVal)
-				break;
-		}
+		returnVal = mysql_errno(_myConn);
+		bool connLost = IsConnectionLost(returnVal);
+		throw SqlException(returnVal,mysql_error(_myConn),"MySQLQuery",connLost,connLost,sql);
 	}
-	while(connLost);
-
-	return returnVal;
 }
 
-bool MySQLConnection::_Query(const char* sql, MYSQL_RES** pResult, MYSQL_FIELD** pFields, UInt64* pRowCount, UInt32* pFieldCount)
+MYSQL_RES* MySQLConnection::_MySQLStoreResult(const char* sql, UInt64& outRowCount, size_t& outFieldCount)
 {
-	if (!mMysql)
-		return 0;
-
-	UInt32 _s;
-	if (_logger.trace())
-		_s = GlobalTimer::getMSTime();
-
-	if(_MySQLQuery(sql))
+	MYSQL_RES* outResult = mysql_store_result(_myConn);
+	if (outResult)
 	{
-		_logger.error(Poco::format("SQL |%s| error %s",string(sql),string(mysql_error(mMysql))));
-		return false;
+		outRowCount = mysql_num_rows(outResult);
+		outFieldCount = mysql_num_fields(outResult);
 	}
-	else if (_logger.trace())
+	else
 	{
-		UInt32 execTime = GlobalTimer::getMSTimeDiff(_s,GlobalTimer::getMSTime());
-		_logger.trace(Poco::format("Query [%u ms] SQL: %s",execTime,string(sql)));
+		int resultRetVal = mysql_errno(_myConn);
+		if (resultRetVal)
+			throw SqlException(resultRetVal,mysql_error(_myConn),"MySQLStoreResult",IsConnectionLost(resultRetVal),true,sql);
+		else
+		{
+			outRowCount = mysql_affected_rows(_myConn);
+			outFieldCount = mysql_field_count(_myConn);
+		}
 	}
+	return outResult;
+}
 
-	*pResult = mysql_store_result(mMysql);
-	*pRowCount = mysql_affected_rows(mMysql);
-	*pFieldCount = mysql_field_count(mMysql);
-
-	if (!*pResult )
+bool MySQLConnection::_Query(const char* sql, MYSQL_RES*& outResult, MYSQL_FIELD*& outFields, UInt64& outRowCount, size_t& outFieldCount)
+{
+	if (!_myConn)
 		return false;
 
-	if (!*pRowCount)
-	{
-		mysql_free_result(*pResult);
-		return false;
-	}
+	_MySQLQuery(sql);
 
-	*pFields = mysql_fetch_fields(*pResult);
+	outRowCount = 0;
+	outFieldCount = 0;
+	outResult = _MySQLStoreResult(sql,outRowCount,outFieldCount);
+
+	if (outResult)
+		outFields = mysql_fetch_fields(outResult);
+	else
+		outFields = nullptr;
+
 	return true;
 }
 
-QueryResult* MySQLConnection::Query(const char* sql)
+unique_ptr<QueryResult> MySQLConnection::query(const char* sql)
 {
-	MYSQL_RES *result = NULL;
-	MYSQL_FIELD *fields = NULL;
+	MYSQL_RES* result = nullptr;
+	MYSQL_FIELD* fields = nullptr;
 	UInt64 rowCount = 0;
-	UInt32 fieldCount = 0;
+	size_t fieldCount = 0;
 
-	if(!_Query(sql,&result,&fields,&rowCount,&fieldCount))
-		return NULL;
+	if(!_Query(sql,result,fields,rowCount,fieldCount))
+		return nullptr;
 
-	QueryResultMysql *queryResult = new QueryResultMysql(result, fields, rowCount, fieldCount);
-
-	queryResult->NextRow();
+	unique_ptr<QueryResult> queryResult(new QueryResultMysql(result, fields, rowCount, fieldCount));
 	return queryResult;
 }
 
-QueryNamedResult* MySQLConnection::QueryNamed(const char* sql)
+unique_ptr<QueryNamedResult> MySQLConnection::namedQuery(const char* sql)
 {
-	MYSQL_RES *result = NULL;
-	MYSQL_FIELD *fields = NULL;
+	MYSQL_RES* result = nullptr;
+	MYSQL_FIELD* fields = nullptr;
 	UInt64 rowCount = 0;
-	UInt32 fieldCount = 0;
+	size_t fieldCount = 0;
 
-	if(!_Query(sql,&result,&fields,&rowCount,&fieldCount))
-		return NULL;
+	if(!_Query(sql,result,fields,rowCount,fieldCount))
+		return nullptr;
 
 	QueryFieldNames names(fieldCount);
-	for (UInt32 i = 0; i < fieldCount; i++)
-		names[i] = fields[i].name;
-
-	QueryResultMysql *queryResult = new QueryResultMysql(result, fields, rowCount, fieldCount);
-
-	queryResult->NextRow();
-	return new QueryNamedResult(queryResult,names);
+	if (fields)
+	{
+		for (size_t i=0; i<fieldCount; i++)
+			names[i] = fields[i].name;
+	}
+	
+	unique_ptr<QueryResult> queryResult(new QueryResultMysql(result, fields, rowCount, fieldCount));
+	return unique_ptr<QueryNamedResult>(new QueryNamedResult(std::move(queryResult),names));
 }
 
-bool MySQLConnection::Execute(const char* sql)
+bool MySQLConnection::execute(const char* sql)
 {
-	if (!mMysql)
+	if (!_myConn)
 		return false;
 
-	UInt32 _s;
-	if (_logger.trace())
-		_s = GlobalTimer::getMSTime();
-
-	if(_MySQLQuery(sql))
-	{
-		_logger.error(Poco::format("SQL |%s| error %s",string(sql),string(mysql_error(mMysql))));
-		return false;
-	}
-	else if (_logger.trace())
-	{
-		UInt32 execTime = GlobalTimer::getMSTimeDiff(_s,GlobalTimer::getMSTime());
-		_logger.trace(Poco::format("Execute [%u ms] SQL: %s",execTime,string(sql)));
-	}
+	_MySQLQuery(sql);
 
 	return true;
 }
 
 bool MySQLConnection::_TransactionCmd(const char* sql)
 {
-	if (_MySQLQuery(sql))
-	{
-		_logger.error(Poco::format("SQL |%s| error %s",string(sql),string(mysql_error(mMysql))));
-		return false;
-	}
-	else if (_logger.trace())
-	{
-		_logger.trace(Poco::format("Transaction SQL: %s",string(sql)));
-	}
+	_MySQLQuery(sql);
 	return true;
 }
 
-bool MySQLConnection::BeginTransaction()
+bool MySQLConnection::transactionStart()
 {
 	return _TransactionCmd("START TRANSACTION");
 }
 
-bool MySQLConnection::CommitTransaction()
+bool MySQLConnection::transactionCommit()
 {
 	return _TransactionCmd("COMMIT");
 }
 
-bool MySQLConnection::RollbackTransaction()
+bool MySQLConnection::transactionRollback()
 {
 	return _TransactionCmd("ROLLBACK");
 }
 
-unsigned long MySQLConnection::escape_string(char* to, const char* from, unsigned long length)
+size_t MySQLConnection::escapeString(char* to, const char* from, size_t length) const
 {
-	if (!mMysql || !to || !from || !length)
+	if (!_myConn || !to || !from || !length)
 		return 0;
 
-	return(mysql_real_escape_string(mMysql, to, from, length));
+	return(mysql_real_escape_string(_myConn, to, from, length));
 }
 
 //////////////////////////////////////////////////////////////////////////
-SqlPreparedStatement* MySQLConnection::CreateStatement( const std::string& fmt )
+SqlPreparedStatement* MySQLConnection::createPreparedStatement( const char* sqlText )
 {
-	return new MySqlPreparedStatement(fmt, *this);
+	return new MySqlPreparedStatement(sqlText, *this);
 }
 
 //////////////////////////////////////////////////////////////////////////
-MySqlPreparedStatement::MySqlPreparedStatement( const std::string& fmt, SqlConnection& conn ) : SqlPreparedStatement(fmt, conn),
-	m_mySqlConn(static_cast<MySQLConnection&>(conn)), m_stmt(NULL), m_pInputArgs(NULL), m_pResult(NULL), m_pResultMetadata(NULL), _logger(conn.DB().CreateLogger("MySqlPreparedStatement")) {}
+MySqlPreparedStatement::MySqlPreparedStatement( const char* sqlText, MySQLConnection& conn ) : SqlPreparedStatement(sqlText, conn), 
+	_mySqlConn(conn), _myStmt(nullptr), _myResMeta(nullptr) {}
 
 MySqlPreparedStatement::~MySqlPreparedStatement()
 {
-	RemoveBinds();
+	unprepare();
 }
 
-bool MySqlPreparedStatement::prepare()
+int MySqlPreparedStatement::lastError() const
+{
+	if (_myStmt)
+		return mysql_stmt_errno(_myStmt);
+
+	return SqlPreparedStatement::lastError();
+}
+
+std::string MySqlPreparedStatement::lastErrorDescr() const
+{
+	if (_myStmt)
+		return mysql_stmt_error(_myStmt);
+
+	return SqlPreparedStatement::lastErrorDescr();
+}
+
+void MySqlPreparedStatement::prepare()
 {
 	if(isPrepared())
-		return true;
+		return;
 
 	//remove old binds
-	RemoveBinds();
+	unprepare();
 
 	//create statement object
-	m_stmt = m_mySqlConn.MySQLStmtInit();
-	if (!m_stmt)
-	{
-		_logger.error("SQL: mysql_stmt_init() failed ");
-		return false;
-	}
+	_myStmt = _mySqlConn._MySQLStmtInit();
+	poco_assert(_myStmt != nullptr);
 
 	//prepare statement
-	if (m_mySqlConn.MySQLStmtPrepare(m_stmt, m_szFmt))
-	{
-		_logger.error(Poco::format("SQL: mysql_stmt_prepare() failed for '%s' with ERROR %s",m_szFmt,string(mysql_stmt_error(m_stmt))));
-		return false;
-	}
+	_mySqlConn._MySQLStmtPrepare(*this, _myStmt, _stmtSql, _stmtLen);
 
-	/* Get the parameter count from the statement */
-	m_nParams = mysql_stmt_param_count(m_stmt);
+	//Get the parameter count from the statement
+	_numParams = mysql_stmt_param_count(_myStmt);
 
-	/* Fetch result set meta information */
-	m_pResultMetadata = mysql_stmt_result_metadata(m_stmt);
+	//Fetch result set meta information
+	_myResMeta = mysql_stmt_result_metadata(_myStmt);
 	//if we do not have result metadata
-	if (!m_pResultMetadata && m_szFmt.length() >= 6 && (!Poco::icompare(m_szFmt.substr(0,6), "select")))
-	{
-		_logger.error(Poco::format("SQL: no meta information for '%s', ERROR %s",m_szFmt,string(mysql_stmt_error(m_stmt))));
-		return false;
-	}
+	if (!_myResMeta && (!strnicmp("select",_stmtSql,6)))
+		poco_bugcheck_msg(Poco::format("SQL: no meta information for '%s', ERROR %s",this->getSqlString(),this->lastErrorDescr()).c_str());
 
-	//bind input buffers
-	if(m_nParams)
-	{
-		if (!m_pInputArgs)
-			m_pInputArgs = new MYSQL_BIND[m_nParams];
-
-		memset(m_pInputArgs, 0, sizeof(MYSQL_BIND) * m_nParams);
-	}
+	//set up bind input buffers
+	_myArgs.resize(_numParams);
+	for (size_t i=0;i<_myArgs.size();i++)
+		memset(&_myArgs[i], 0, sizeof(MYSQL_BIND));
 
 	//check if we have a statement which returns result sets
-	if(m_pResultMetadata)
+	if(_myResMeta)
 	{
-		//our statement is query
-		m_bIsQuery = true;
-		/* Get total columns in the query */
-		m_nColumns = mysql_num_fields(m_pResultMetadata);
+		//our statement is a query
+		_isQuery = true;
+		//get number of columns of the query
+		_numColumns = mysql_num_fields(_myResMeta);
 
-		//bind output buffers
+		//set up bind output buffers
+		_myRes.resize(_numColumns);
+		for (size_t i=0;i<_myRes.size();i++)
+		{
+			MYSQL_BIND& curr = _myRes[i];
+			memset(&curr,0,sizeof(MYSQL_BIND));
+			//TODO: implement fetching results from statements
+		}
 	}
 
-	m_bPrepared = true;
-	return true;
+	_prepared = true;
 }
 
 void MySqlPreparedStatement::bind( const SqlStmtParameters& holder )
 {
-	if(!isPrepared())
-	{
-		poco_bugcheck();
-		return;
-	}
+	poco_assert(isPrepared());
+	poco_assert(_myArgs.size() == _numParams);
 
 	//finalize adding params
-	if(!m_pInputArgs)
+	if (_myArgs.size() < 1)
 		return;
 
 	//verify if we bound all needed input parameters
-	if(m_nParams != holder.boundParams())
+	if(_numParams != holder.boundParams())
 	{
-		poco_bugcheck();
+		poco_bugcheck_msg("Not all parameters bound in MySqlPreparedStatement");
 		return;
 	}
 
-	int nIndex = 0;
-	SqlStmtParameters::ParameterContainer const& _args = holder.params();
-
-	for (SqlStmtParameters::ParameterContainer::const_iterator iter = _args.begin(); iter != _args.end(); ++iter)
+	size_t nIndex = 0;
+	const SqlStmtParameters::ParameterContainer& holderArgs = holder.params();
+	for (auto it = holderArgs.begin(); it!=holderArgs.end(); ++it)
 	{
 		//bind parameter
-		addParam(nIndex++, (*iter));
+		addParam(nIndex++, (*it));
 	}
 
 	//bind input arguments
-	if(mysql_stmt_bind_param(m_stmt, m_pInputArgs))
-	{
-		_logger.error(Poco::format("SQL ERROR: mysql_stmt_bind_param() failed with ERROR %s",string(mysql_stmt_error(m_stmt))));
-	}
+	if(mysql_stmt_bind_param(_myStmt, &_myArgs[0]))
+		poco_bugcheck_msg((string("mysql_stmt_bind_param() failed with ERROR ")+mysql_stmt_error(_myStmt)).c_str());
 }
 
-void MySqlPreparedStatement::addParam( int nIndex, const SqlStmtFieldData& data )
+namespace
 {
-	poco_assert(m_pInputArgs);
-	poco_assert(nIndex < m_nParams);
+	std::pair<enum_field_types,bool> ToMySQLType( const SqlStmtField& data )
+	{
+		bool isUnsigned = false;
+		enum_field_types dataType = MYSQL_TYPE_NULL;
 
-	MYSQL_BIND& pData = m_pInputArgs[nIndex];
+		switch (data.type())
+		{
+		//MySQL does not support MYSQL_TYPE_BIT as input type
+		case SqlStmtField::FIELD_BOOL:		//dataType = MYSQL_TYPE_BIT;	isUnsigned = true;	break;
+		case SqlStmtField::FIELD_UI8:		dataType = MYSQL_TYPE_TINY;		isUnsigned = true;	break;
+		case SqlStmtField::FIELD_I8:		dataType = MYSQL_TYPE_TINY;							break;
+		case SqlStmtField::FIELD_I16:		dataType = MYSQL_TYPE_SHORT;						break;
+		case SqlStmtField::FIELD_UI16:		dataType = MYSQL_TYPE_SHORT;	isUnsigned = true;	break;
+		case SqlStmtField::FIELD_I32:		dataType = MYSQL_TYPE_LONG;							break;
+		case SqlStmtField::FIELD_UI32:		dataType = MYSQL_TYPE_LONG;		isUnsigned = true;	break;
+		case SqlStmtField::FIELD_I64:		dataType = MYSQL_TYPE_LONGLONG;						break;
+		case SqlStmtField::FIELD_UI64:		dataType = MYSQL_TYPE_LONGLONG;	isUnsigned = true;	break;
+		case SqlStmtField::FIELD_FLOAT:		dataType = MYSQL_TYPE_FLOAT;						break;
+		case SqlStmtField::FIELD_DOUBLE:	dataType = MYSQL_TYPE_DOUBLE;						break;
+		case SqlStmtField::FIELD_STRING:	dataType = MYSQL_TYPE_STRING;						break;
+		case SqlStmtField::FIELD_BINARY:	dataType = MYSQL_TYPE_BLOB;		isUnsigned = true;	break;
+		default:							dataType = MYSQL_TYPE_NULL;							break;
+		}
 
-	my_bool bUnsigned = 0;
-	enum_field_types dataType = ToMySQLType(data, bUnsigned);
+		return std::make_pair(dataType,isUnsigned);
+	}
+};
+
+void MySqlPreparedStatement::addParam( size_t nIndex, const SqlStmtField& data )
+{
+	poco_assert(_myArgs.size() == _numParams);
+	poco_assert(nIndex < _numParams);
+
+	MYSQL_BIND& pData = _myArgs[nIndex];
 
 	//setup MYSQL_BIND structure
-	pData.buffer_type = dataType;
-	pData.is_unsigned = bUnsigned;
-	pData.buffer = data.buff();
-	pData.length = 0;
-	pData.buffer_length = (data.type() == FIELD_STRING || data.type() == FIELD_BINARY) ? data.size() : 0;
+	{
+		auto typeInfo = ToMySQLType(data);
+		pData.buffer_type = typeInfo.first;
+		pData.is_unsigned = typeInfo.second;
+	}
+	pData.buffer = const_cast<void*>(data.buff());
+	pData.length = nullptr;
+	pData.buffer_length = data.size();
+	pData.is_null = nullptr;
+	pData.error = nullptr;
 }
 
-void MySqlPreparedStatement::RemoveBinds()
+void MySqlPreparedStatement::unprepare()
 {
-	if(!m_stmt)
-		return;
+	_myArgs.clear();
+	_myRes.clear();
 
-	delete [] m_pInputArgs;
-	m_pInputArgs = NULL;
-	delete [] m_pResult;
-	m_pResult = NULL;
+	if (_myResMeta)
+	{
+		mysql_free_result(_myResMeta);
+		_myResMeta = nullptr;
+	}
+	if (_myStmt)
+	{
+		mysql_stmt_close(_myStmt);
+		_myStmt = nullptr;
+	}	
 
-	mysql_free_result(m_pResultMetadata);
-	mysql_stmt_close(m_stmt);
-
-	m_stmt = NULL;
-	m_pResultMetadata = NULL;
-
-	m_bPrepared = false;
+	_prepared = false;
 }
 
-std::string MySqlPreparedStatement::_BindParamsToStr() const
+#include <boost/lexical_cast.hpp>
+#include <Poco/HexBinaryEncoder.h>
+
+namespace
+{
+	std::string MySQLParamToString( const MYSQL_BIND& par )
+	{
+		using boost::lexical_cast;
+
+		switch (par.buffer_type)
+		{
+		case MYSQL_TYPE_TINY:
+			if (par.is_unsigned)
+			{
+				UInt8 dest;
+				memcpy(&dest,par.buffer,sizeof(dest));
+				return lexical_cast<string>(static_cast<UInt32>(dest));
+			}
+			else
+			{
+				Int8 dest;
+				memcpy(&dest,par.buffer,sizeof(dest));
+				return lexical_cast<string>(static_cast<UInt32>(dest));
+			}
+		case MYSQL_TYPE_SHORT:
+			if (par.is_unsigned)
+			{
+				UInt16 dest;
+				memcpy(&dest,par.buffer,sizeof(dest));
+				return lexical_cast<string>(dest);
+			}
+			else
+			{
+				Int16 dest;
+				memcpy(&dest,par.buffer,sizeof(dest));
+				return lexical_cast<string>(dest);
+			}
+		case MYSQL_TYPE_LONG:
+			if (par.is_unsigned)
+			{
+				UInt32 dest;
+				memcpy(&dest,par.buffer,sizeof(dest));
+				return lexical_cast<string>(dest);
+			}
+			else
+			{
+				Int32 dest;
+				memcpy(&dest,par.buffer,sizeof(dest));
+				return lexical_cast<string>(dest);
+			}
+		case MYSQL_TYPE_LONGLONG:
+			if (par.is_unsigned)
+			{
+				UInt64 dest;
+				memcpy(&dest,par.buffer,sizeof(dest));
+				return lexical_cast<string>(dest);
+			}
+			else
+			{
+				Int64 dest;
+				memcpy(&dest,par.buffer,sizeof(dest));
+				return lexical_cast<string>(dest);
+			}
+		case MYSQL_TYPE_FLOAT:
+			{
+				float dest;
+				memcpy(&dest,par.buffer,sizeof(dest));
+				return lexical_cast<string>(dest);
+			}
+		case MYSQL_TYPE_DOUBLE:
+			{
+				double dest;
+				memcpy(&dest,par.buffer,sizeof(dest));
+				return lexical_cast<string>(dest);
+			}
+		case MYSQL_TYPE_STRING:
+			return "\"" + string((const char*)par.buffer,par.buffer_length) + "\"";
+		case MYSQL_TYPE_BLOB:
+			{
+				std::ostringstream ss;
+				Poco::HexBinaryEncoder(ss).write((const char*)par.buffer,par.buffer_length);
+				ss.flush();
+				return "HEX(" + ss.str() + ")";
+			}
+		default:
+			return "<UNDEFINED>";
+		}
+	}
+};
+
+
+std::string MySqlPreparedStatement::bindParamsToStr() const
 {
 	string values;
-	if (m_pInputArgs != NULL && m_nParams > 0)
 	{
 		std::ostringstream str;
 		str << " " << "VALUES(";
-		for(UInt32 i=0;i<m_nParams;i++)
+		for (size_t i=0;i<_myArgs.size();i++)
 		{
-			str << MySQLParamToString(m_pInputArgs[i]);
-			if (i != m_nParams-1)
+			str << MySQLParamToString(_myArgs[i]);
+			if (i != _myArgs.size()-1)
 				str << ", ";
 		}
 		str << ")";
@@ -688,139 +728,15 @@ std::string MySqlPreparedStatement::_BindParamsToStr() const
 
 bool MySqlPreparedStatement::execute()
 {
-	if(!isPrepared())
-		return false;
+	poco_assert(isPrepared());
 
-	UInt32 _s;
-	if (_logger.trace())
-		_s = GlobalTimer::getMSTime();
+	MYSQL_BIND* args = nullptr;
+	if (_myArgs.size() > 0)
+		args = &_myArgs[0];
 
-	if(m_mySqlConn.MySQLStmtExecute(m_stmt,m_szFmt,m_pInputArgs))
-	{
-		_logger.error(Poco::format("SQL: cannot execute '%s' %s, ERROR %s",m_szFmt,_BindParamsToStr(),string(mysql_stmt_error(m_stmt))));
-		return false;
-	}
-	else if (_logger.trace())
-	{
-		UInt32 execTime = GlobalTimer::getMSTimeDiff(_s,GlobalTimer::getMSTime());
-		_logger.trace(Poco::format("Execute [%u ms] Statement: %s%s",execTime,m_szFmt,_BindParamsToStr()));
-	}
+	_mySqlConn._MySQLStmtExecute(*this, _myStmt);
 
 	return true;
-}
-
-enum_field_types MySqlPreparedStatement::ToMySQLType( const SqlStmtFieldData &data, my_bool &bUnsigned )
-{
-	bUnsigned = 0;
-	enum_field_types dataType = MYSQL_TYPE_NULL;
-
-	switch (data.type())
-	{
-	case FIELD_NONE:    dataType = MYSQL_TYPE_NULL;                     break;
-		// MySQL does not support MYSQL_TYPE_BIT as input type
-	case FIELD_BOOL:    //dataType = MYSQL_TYPE_BIT;      bUnsigned = 1;  break;
-	case FIELD_UI8:     dataType = MYSQL_TYPE_TINY;     bUnsigned = 1;  break;
-	case FIELD_I8:      dataType = MYSQL_TYPE_TINY;                     break;
-	case FIELD_I16:     dataType = MYSQL_TYPE_SHORT;                    break;
-	case FIELD_UI16:    dataType = MYSQL_TYPE_SHORT;    bUnsigned = 1;  break;
-	case FIELD_I32:     dataType = MYSQL_TYPE_LONG;                     break;
-	case FIELD_UI32:    dataType = MYSQL_TYPE_LONG;     bUnsigned = 1;  break;
-	case FIELD_I64:     dataType = MYSQL_TYPE_LONGLONG;                 break;
-	case FIELD_UI64:    dataType = MYSQL_TYPE_LONGLONG; bUnsigned = 1;  break;
-	case FIELD_FLOAT:   dataType = MYSQL_TYPE_FLOAT;                    break;
-	case FIELD_DOUBLE:  dataType = MYSQL_TYPE_DOUBLE;                   break;
-	case FIELD_STRING:  dataType = MYSQL_TYPE_STRING;                   break;
-	case FIELD_BINARY:	dataType = MYSQL_TYPE_BLOB; bUnsigned = 1;		break;
-	}
-
-	return dataType;
-}
-
-#include <boost/lexical_cast.hpp>
-#include <Poco/HexBinaryEncoder.h>
-
-string MySqlPreparedStatement::MySQLParamToString( const MYSQL_BIND& par )
-{
-	using boost::lexical_cast;
-
-	switch (par.buffer_type)
-	{
-	case MYSQL_TYPE_TINY:
-		if (par.is_unsigned)
-		{
-			UInt8 dest;
-			memcpy(&dest,par.buffer,sizeof(dest));
-			return lexical_cast<string>(static_cast<UInt32>(dest));
-		}
-		else
-		{
-			Int8 dest;
-			memcpy(&dest,par.buffer,sizeof(dest));
-			return lexical_cast<string>(static_cast<UInt32>(dest));
-		}
-	case MYSQL_TYPE_SHORT:
-		if (par.is_unsigned)
-		{
-			UInt16 dest;
-			memcpy(&dest,par.buffer,sizeof(dest));
-			return lexical_cast<string>(dest);
-		}
-		else
-		{
-			Int16 dest;
-			memcpy(&dest,par.buffer,sizeof(dest));
-			return lexical_cast<string>(dest);
-		}
-	case MYSQL_TYPE_LONG:
-		if (par.is_unsigned)
-		{
-			UInt32 dest;
-			memcpy(&dest,par.buffer,sizeof(dest));
-			return lexical_cast<string>(dest);
-		}
-		else
-		{
-			Int32 dest;
-			memcpy(&dest,par.buffer,sizeof(dest));
-			return lexical_cast<string>(dest);
-		}
-	case MYSQL_TYPE_LONGLONG:
-		if (par.is_unsigned)
-		{
-			UInt64 dest;
-			memcpy(&dest,par.buffer,sizeof(dest));
-			return lexical_cast<string>(dest);
-		}
-		else
-		{
-			Int64 dest;
-			memcpy(&dest,par.buffer,sizeof(dest));
-			return lexical_cast<string>(dest);
-		}
-	case MYSQL_TYPE_FLOAT:
-		{
-			float dest;
-			memcpy(&dest,par.buffer,sizeof(dest));
-			return lexical_cast<string>(dest);
-		}
-	case MYSQL_TYPE_DOUBLE:
-		{
-			double dest;
-			memcpy(&dest,par.buffer,sizeof(dest));
-			return lexical_cast<string>(dest);
-		}
-	case MYSQL_TYPE_STRING:
-		return "\"" + string((const char*)par.buffer,par.buffer_length) + "\"";
-	case MYSQL_TYPE_BLOB:
-		{
-			std::ostringstream ss;
-			Poco::HexBinaryEncoder(ss).write((const char*)par.buffer,par.buffer_length);
-			ss.flush();
-			return "HEX(" + ss.str() + ")";
-		}
-	default:
-		return string();
-	}
 }
 
 #endif

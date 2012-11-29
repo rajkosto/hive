@@ -20,159 +20,171 @@
 
 #include "Shared/Common/Types.h"
 #include "Shared/Common/Exception.h"
+#include <boost/variant.hpp>
 #include <sstream>
 
-union SqlStmtField
-{
-	bool boolean;
-	UInt8 ui8;
-	Int8 i8;
-	UInt16 ui16;
-	Int16 i16;
-	UInt32 ui32;
-	Int32 i32;
-	UInt64 ui64;
-	Int64 i64;
-	float f;
-	double d;
-};
-
-enum SqlStmtFieldType
-{
-	FIELD_BOOL,
-	FIELD_UI8,
-	FIELD_UI16,
-	FIELD_UI32,
-	FIELD_UI64,
-	FIELD_I8,
-	FIELD_I16,
-	FIELD_I32,
-	FIELD_I64,
-	FIELD_FLOAT,
-	FIELD_DOUBLE,
-	FIELD_STRING,
-	FIELD_BINARY,
-	FIELD_NONE
-};
-
-//templates might be the best choice here
-//but I didn't have time to play with them
-class SqlStmtFieldData
+class SqlStmtField
 {
 public:
-	SqlStmtFieldData() : m_type(FIELD_NONE) { m_numberData.ui64 = 0; }
-	~SqlStmtFieldData() {}
+	enum Type
+	{
+		FIELD_BOOL,
+		FIELD_UI8,
+		FIELD_UI16,
+		FIELD_UI32,
+		FIELD_UI64,
+		FIELD_I8,
+		FIELD_I16,
+		FIELD_I32,
+		FIELD_I64,
+		FIELD_FLOAT,
+		FIELD_DOUBLE,
+		FIELD_STRING,
+		FIELD_BINARY,
+		FIELD_COUNT
+	};
 
 	template<typename T>
-	SqlStmtFieldData(T param) { set(param); }
+	SqlStmtField(T param) { set(param); }
 
-	SqlStmtFieldData(const UInt8* data, size_t size) { set(data,size); }
-	SqlStmtFieldData(const char* str, size_t size) { set(str,size); }
+	SqlStmtField(const UInt8* data, size_t size) { set(data,size); }
+	SqlStmtField(const char* str, size_t size) { set(str,size); }
 
 	template<typename T1>
 	void set(T1 param1);
 
-	void set(const std::string& val);
-	void set(const ByteVector& val);
+	void set(std::string val);
+	void set(ByteVector val);
 	void set(const UInt8* data, size_t size);
 	void set(const char* str, size_t strSize);
 
 	//getters
-	bool toBool() const { poco_assert(m_type == FIELD_BOOL); return (m_numberData.ui8)? true:false; }
-	UInt8 toUint8() const { poco_assert(m_type == FIELD_UI8); return m_numberData.ui8; }
-	Int8 toInt8() const { poco_assert(m_type == FIELD_I8); return m_numberData.i8; }
-	UInt16 toUint16() const { poco_assert(m_type == FIELD_UI16); return m_numberData.ui16; }
-	Int16 toInt16() const { poco_assert(m_type == FIELD_I16); return m_numberData.i16; }
-	UInt32 toUint32() const { poco_assert(m_type == FIELD_UI32); return m_numberData.ui32; }
-	Int32 toInt32() const { poco_assert(m_type == FIELD_I32); return m_numberData.i32; }
-	UInt64 toUint64() const { poco_assert(m_type == FIELD_UI64); return m_numberData.ui64; }
-	Int64 toInt64() const { poco_assert(m_type == FIELD_I64); return m_numberData.i64; }
-	float toFloat() const { poco_assert(m_type == FIELD_FLOAT); return m_numberData.f; }
-	double toDouble() const { poco_assert(m_type == FIELD_DOUBLE); return m_numberData.d; }
-	std::string toString() const { poco_assert(m_type == FIELD_STRING); return m_stringData; }
-	const char* toCStr() const { return this->toString().c_str(); }
-	ByteVector toVector() const { poco_assert(m_type == FIELD_BINARY); return m_vectData; }
+	bool				toBool() const		{ return boost::get<bool>(_data); }
+	UInt8				toUint8() const		{ return boost::get<UInt8>(_data); }
+	Int8				toInt8() const		{ return boost::get<Int8>(_data); }
+	UInt16				toUint16() const	{ return boost::get<UInt16>(_data); }
+	Int16				toInt16() const		{ return boost::get<Int16>(_data); }
+	UInt32				toUint32() const	{ return boost::get<UInt32>(_data); }
+	Int32				toInt32() const		{ return boost::get<Int32>(_data); }
+	UInt64				toUint64() const	{ return boost::get<UInt64>(_data); }
+	Int64				toInt64() const		{ return boost::get<Int64>(_data); }
+	float				toFloat() const		{ return boost::get<float>(_data); }
+	double				toDouble() const	{ return boost::get<double>(_data); }
+	const std::string&	toString() const	{ return boost::get<const std::string&>(_data); }
+	const char*			toCStr() const		{ return toString().c_str(); }
+	const ByteVector&	toVector() const	{ return boost::get<const ByteVector&>(_data); }
 
 	//get type of data
-	SqlStmtFieldType type() const { return m_type; }
-	//get underlying buffer type
-	void* buff() const
+	Type type() const 
 	{ 
-		if (m_type == FIELD_BINARY)
+		struct TypeVisitor : public boost::static_visitor<Type>
 		{
-			if (m_vectData.size() > 0)
-				return (void*)&m_vectData[0];
-			else
-				return NULL;
-		}
-		else if (m_type == FIELD_STRING)
-			return (void*)m_stringData.c_str();
-		else
-			return (void*)&m_numberData; 
+			Type operator ()(bool) const				{ return FIELD_BOOL; }
+			Type operator ()(UInt8) const				{ return FIELD_UI8; }
+			Type operator ()(Int8) const				{ return FIELD_I8; }
+			Type operator ()(UInt16) const				{ return FIELD_UI16; }
+			Type operator ()(Int16) const				{ return FIELD_I16; }
+			Type operator ()(UInt32) const				{ return FIELD_UI32; }
+			Type operator ()(Int32) const				{ return FIELD_I32; }
+			Type operator ()(UInt64) const				{ return FIELD_UI64; }
+			Type operator ()(Int64) const				{ return FIELD_I64; }
+			Type operator ()(float) const				{ return FIELD_FLOAT; }
+			Type operator ()(double) const				{ return FIELD_DOUBLE; }
+			Type operator ()(const std::string&) const	{ return FIELD_STRING; }
+			Type operator ()(const ByteVector&) const	{ return FIELD_BINARY; }
+		};
+
+		return boost::apply_visitor(TypeVisitor(),_data);
+	}
+	//get pointer to underlying data
+	const void* buff() const
+	{ 
+		struct BufferVisitor : public boost::static_visitor<const void*>
+		{
+			const void* operator ()(const bool& data) const			{ return &data; }
+			const void* operator ()(const UInt8& data) const		{ return &data; }
+			const void* operator ()(const Int8& data) const			{ return &data; }
+			const void* operator ()(const UInt16& data) const		{ return &data; }
+			const void* operator ()(const Int16& data) const		{ return &data; }
+			const void* operator ()(const UInt32& data) const		{ return &data; }
+			const void* operator ()(const Int32& data) const		{ return &data; }
+			const void* operator ()(const UInt64& data) const		{ return &data; }
+			const void* operator ()(const Int64& data) const		{ return &data; }
+			const void* operator ()(const float& data) const		{ return &data; }
+			const void* operator ()(const double& data) const		{ return &data; }
+			const void* operator ()(const std::string& data) const	{ return data.c_str(); }
+			const void* operator ()(const ByteVector& data) const	
+			{ 
+				if (data.size() > 0)
+					return &data[0];
+
+				return nullptr;
+			}
+		};
+
+		return boost::apply_visitor(BufferVisitor(), _data);
 	}
 
 	//get size of data
 	size_t size() const
 	{
-		switch (m_type)
+		struct SizeVisitor : public boost::static_visitor<size_t>
 		{
-		case FIELD_NONE:    return 0;
-		case FIELD_BOOL:    //return sizeof(bool);
-		case FIELD_UI8:     return sizeof(UInt8);
-		case FIELD_UI16:    return sizeof(UInt16);
-		case FIELD_UI32:    return sizeof(UInt32);
-		case FIELD_UI64:    return sizeof(UInt64);
-		case FIELD_I8:      return sizeof(Int8);
-		case FIELD_I16:     return sizeof(Int16);
-		case FIELD_I32:     return sizeof(Int32);
-		case FIELD_I64:     return sizeof(Int64);
-		case FIELD_FLOAT:   return sizeof(float);
-		case FIELD_DOUBLE:  return sizeof(double);
-		case FIELD_STRING:  return m_stringData.length();
-		case FIELD_BINARY:	return m_vectData.size();
+			size_t operator ()(bool) const						{ return sizeof(bool); }
+			size_t operator ()(UInt8) const						{ return sizeof(UInt8); }
+			size_t operator ()(Int8) const						{ return sizeof(Int8); }
+			size_t operator ()(UInt16) const					{ return sizeof(UInt16); }
+			size_t operator ()(Int16) const						{ return sizeof(Int16); }
+			size_t operator ()(UInt32) const					{ return sizeof(UInt32); }
+			size_t operator ()(Int32) const						{ return sizeof(Int32); }
+			size_t operator ()(UInt64) const					{ return sizeof(UInt64); }
+			size_t operator ()(Int64) const						{ return sizeof(Int64); }
+			size_t operator ()(float) const						{ return sizeof(float); }
+			size_t operator ()(double) const					{ return sizeof(double); }
+			size_t operator ()(const std::string& data) const	{ return data.length(); }
+			size_t operator ()(const ByteVector& data) const	{ return data.size(); }
+		};
 
-		default:
-			throw std::runtime_error("unrecognized type of SqlStmtFieldType obtained");
-		}
+		return boost::apply_visitor(SizeVisitor(),_data);
 	}
 
 private:
-	SqlStmtFieldType m_type;
-	SqlStmtField m_numberData;
-	std::string m_stringData;
-	ByteVector m_vectData;
+	typedef boost::variant< std::string, ByteVector, 
+		bool, UInt8, UInt16, UInt32, UInt64, 
+		Int8, Int16, Int32, Int64, float, double > FieldVariant;
+
+	FieldVariant _data;
 };
 
 //template specialization
-template<> inline void SqlStmtFieldData::set(bool val) { m_type = FIELD_BOOL; m_numberData.ui8 = val; }
-template<> inline void SqlStmtFieldData::set(UInt8 val) { m_type = FIELD_UI8; m_numberData.ui8 = val; }
-template<> inline void SqlStmtFieldData::set(Int8 val) { m_type = FIELD_I8; m_numberData.i8 = val; }
-template<> inline void SqlStmtFieldData::set(UInt16 val) { m_type = FIELD_UI16; m_numberData.ui16 = val; }
-template<> inline void SqlStmtFieldData::set(Int16 val) { m_type = FIELD_I16; m_numberData.i16 = val; }
-template<> inline void SqlStmtFieldData::set(UInt32 val) { m_type = FIELD_UI32; m_numberData.ui32 = val; }
-template<> inline void SqlStmtFieldData::set(Int32 val) { m_type = FIELD_I32; m_numberData.i32 = val; }
-template<> inline void SqlStmtFieldData::set(UInt64 val) { m_type = FIELD_UI64; m_numberData.ui64 = val; }
-template<> inline void SqlStmtFieldData::set(Int64 val) { m_type = FIELD_I64; m_numberData.i64 = val; }
-template<> inline void SqlStmtFieldData::set(float val) { m_type = FIELD_FLOAT; m_numberData.f = val; }
-template<> inline void SqlStmtFieldData::set(double val) { m_type = FIELD_DOUBLE; m_numberData.d = val; }
-template<> inline void SqlStmtFieldData::set(const char* val) { m_type = FIELD_STRING; m_stringData = val; }
+template<> inline void SqlStmtField::set(bool val) { _data = val; }
+template<> inline void SqlStmtField::set(UInt8 val) { _data = val; }
+template<> inline void SqlStmtField::set(Int8 val) { _data = val; }
+template<> inline void SqlStmtField::set(UInt16 val) { _data = val; }
+template<> inline void SqlStmtField::set(Int16 val) { _data = val; }
+template<> inline void SqlStmtField::set(UInt32 val) { _data = val; }
+template<> inline void SqlStmtField::set(Int32 val) { _data = val; }
+template<> inline void SqlStmtField::set(UInt64 val) { _data = val; }
+template<> inline void SqlStmtField::set(Int64 val) { _data = val; }
+template<> inline void SqlStmtField::set(float val) { _data = val; }
+template<> inline void SqlStmtField::set(double val) { _data = val; }
+template<> inline void SqlStmtField::set(const char* val) { _data = std::string(val); }
 
-inline void SqlStmtFieldData::set(const std::string& val) { m_type = FIELD_STRING; m_stringData = val; }
-inline void SqlStmtFieldData::set(const ByteVector& val) { m_type = FIELD_BINARY; m_vectData = val; }
-inline void SqlStmtFieldData::set(const UInt8* data, size_t size) 
+inline void SqlStmtField::set(std::string val) { _data = std::move(val); }
+inline void SqlStmtField::set(ByteVector val) { _data = std::move(val); }
+inline void SqlStmtField::set(const UInt8* data, size_t size) 
 {
-	m_type = FIELD_BINARY; 
-	m_vectData.resize(size);
+	ByteVector localData(size);
 	if (size>0)
-		std::copy(data,data+size,m_vectData.begin());
+		std::copy(data,data+size,localData.begin());
+	_data = std::move(localData);
 }
-inline void SqlStmtFieldData::set(const char* str, size_t strSize)
+inline void SqlStmtField::set(const char* str, size_t strSize)
 {
-	m_type = FIELD_STRING;
 	if (strSize>0)
-		m_stringData = std::string(str,strSize);
+		_data = std::string(str,strSize);
 	else
-		m_stringData = std::string();
+		_data = std::string();
 }
 
 class SqlStatement;
@@ -180,55 +192,51 @@ class SqlStatement;
 class SqlStmtParameters
 {
 public:
-	typedef std::vector<SqlStmtFieldData> ParameterContainer;
+	typedef std::vector<SqlStmtField> ParameterContainer;
 
 	//reserve memory to contain all input parameters of stmt
-	explicit SqlStmtParameters(size_t nParams)
+	void reserve(size_t numParams)
 	{
-		//reserve memory if needed
-		if(nParams > 0)
-			m_params.reserve(nParams);
-	}
-
-	~SqlStmtParameters() 
-	{
+		if(numParams > 0)
+		{
+			if (numParams > _params.capacity())
+				_params.reserve(numParams);
+		}
 	}
 
 	//get amount of bound parameters
 	size_t boundParams() const 
 	{
-		return m_params.size();
+		return _params.size();
 	}
 	//add parameter
-	void addParam(const SqlStmtFieldData& data) 
+	void addParam(const SqlStmtField& data) 
 	{
-		m_params.push_back(data); 
+		_params.push_back(data); 
 	}
-	//empty SQL statement parameters. In case nParams > 1 - reserve memory for parameters
+	//empty SQL statement parameters. In case nParams > 0 - reserve memory for parameters
 	//should help to reuse the same object with batched SQL requests
-	void reset( size_t numArguments = 0 )
+	void reset(size_t numArguments = 0)
 	{
-		m_params.clear();
+		_params.clear();
 		//reserve memory if needed
 		if(numArguments > 0)
-			m_params.reserve(numArguments);
+			_params.reserve(numArguments);
 	}
 	//swaps contents of internal param container
 	void swap(SqlStmtParameters& obj)
 	{
-		std::swap(m_params, obj.m_params);
+		std::swap(_params, obj._params);
 	}
 	//get bound parameters
 	const ParameterContainer& params() const 
 	{
-		return m_params; 
+		return _params; 
 	}
 
 private:
-	SqlStmtParameters& operator=(const SqlStmtParameters& obj);
-
 	//statement parameter holder
-	ParameterContainer m_params;
+	ParameterContainer _params;
 };
 
 //statement ID encapsulation logic
@@ -252,58 +260,58 @@ private:
 class SqlStatement
 {
 public:
-	virtual ~SqlStatement() { delete m_pParams; }
+	virtual ~SqlStatement() {}
 
-	UInt32 getId() const { return m_index.getId(); }
-	size_t numArgs() const { return m_index.numArgs(); }
+	UInt32 getId() const { return _stmtId.getId(); }
+	size_t numArgs() const { return _stmtId.numArgs(); }
 
-	virtual bool Execute() = 0;
-	virtual bool DirectExecute() = 0;
+	virtual bool execute() = 0;
+	virtual bool directExecute() = 0;
 
 	//templates to simplify 1-5 parameter bindings
 	template<typename ParamType1>
-	bool PExecute(ParamType1 param1)
+	bool executeParams(ParamType1 param1)
 	{
 		arg(param1);
-		return Execute();
+		return execute();
 	}
 
 	template<typename ParamType1, typename ParamType2>
-	bool PExecute(ParamType1 param1, ParamType2 param2)
+	bool executeParams(ParamType1 param1, ParamType2 param2)
 	{
 		arg(param1);
 		arg(param2);
-		return Execute();
+		return execute();
 	}
 
 	template<typename ParamType1, typename ParamType2, typename ParamType3>
-	bool PExecute(ParamType1 param1, ParamType2 param2, ParamType3 param3)
+	bool executeParams(ParamType1 param1, ParamType2 param2, ParamType3 param3)
 	{
 		arg(param1);
 		arg(param2);
 		arg(param3);
-		return Execute();
+		return execute();
 	}
 
 	template<typename ParamType1, typename ParamType2, typename ParamType3, typename ParamType4>
-	bool PExecute(ParamType1 param1, ParamType2 param2, ParamType3 param3, ParamType4 param4)
+	bool executeParams(ParamType1 param1, ParamType2 param2, ParamType3 param3, ParamType4 param4)
 	{
 		arg(param1);
 		arg(param2);
 		arg(param3);
 		arg(param4);
-		return Execute();
+		return execute();
 	}
 
 	template<typename ParamType1, typename ParamType2, typename ParamType3, typename ParamType4, typename ParamType5>
-	bool PExecute(ParamType1 param1, ParamType2 param2, ParamType3 param3, ParamType4 param4, ParamType5 param5)
+	bool executeParams(ParamType1 param1, ParamType2 param2, ParamType3 param3, ParamType4 param4, ParamType5 param5)
 	{
 		arg(param1);
 		arg(param2);
 		arg(param3);
 		arg(param4);
 		arg(param5);
-		return Execute();
+		return execute();
 	}
 
 	//bind parameters with specified type
@@ -319,34 +327,30 @@ public:
 	void addFloat(float var) { arg(var); }
 	void addDouble(double var) { arg(var); }
 	void addString(const char* var) { arg(var); }
-	void addString(const std::string& var) { arg(var); }
+	void addString(std::string var) { arg(std::move(var)); }
 	void addString(std::ostringstream& ss) { arg(ss.str()); ss.str(std::string()); }
 	void addString(const char* var, size_t size)  { arg(var,size); }
 	void addBinary(const UInt8* data, size_t size) { arg(data,size); }
-	void addBinary(const ByteVector& data) { arg(data); }
+	void addBinary(ByteVector data) { arg(std::move(data)); }
 private:
-	SqlStmtParameters* get()
+	SqlStmtParameters& get()
 	{
-		if(!m_pParams)
-			m_pParams = new SqlStmtParameters(numArgs());
-
-		return m_pParams;
+		_params.reserve(numArgs());		
+		return _params;
 	}
 	//helper function
 	//use appropriate add* functions to bind specific data type
 	template<typename ParamType>
 	void arg(ParamType val)
 	{
-		SqlStmtParameters* p = get();
-		p->addParam(SqlStmtFieldData(val));
+		get().addParam(SqlStmtField(val));
 	}
 	template<typename ParamType1, typename ParamType2>
 	void arg(ParamType1 val1, ParamType2 val2)
 	{
-		SqlStmtParameters* p = get();
-		p->addParam(SqlStmtFieldData(val1,val2));
+		get().addParam(SqlStmtField(val1,val2));
 	}
 protected:
-	SqlStatementID m_index;
-	SqlStmtParameters* m_pParams;
+	SqlStatementID _stmtId;
+	SqlStmtParameters _params;
 };

@@ -36,10 +36,10 @@ bool DirectHiveApp::initialiseService()
 		initString = DatabaseLoader::makeInitString(globalDBConf);
 	}
 
-	if (!_charDb->Initialize(dbLogger,initString))
+	if (!_charDb->initialise(dbLogger,initString))
 		return false;
 
-	_charDb->AllowAsyncTransactions();
+	_charDb->allowAsyncOperations();
 	_objDb = _charDb;
 	
 	//pass the db along to character datasource
@@ -58,10 +58,10 @@ bool DirectHiveApp::initialiseService()
 		
 		Poco::Logger& objDBLogger = Poco::Logger::get("ObjectDB");
 
-		if (!_objDb->Initialize(objDBLogger,DatabaseLoader::makeInitString(objDBConf)))
+		if (!_objDb->initialise(objDBLogger,DatabaseLoader::makeInitString(objDBConf)))
 			return false;
 
-		_objDb->AllowAsyncTransactions();
+		_objDb->allowAsyncOperations();
 	}
 	
 	Poco::AutoPtr<Poco::Util::AbstractConfiguration> objConf(config().createView("Objects"));

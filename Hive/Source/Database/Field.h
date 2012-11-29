@@ -33,49 +33,45 @@ public:
 		DB_TYPE_BOOL    = 0x04
 	};
 
-	Field() : mValue(NULL), mType(DB_TYPE_UNKNOWN) {}
-	Field(const char* value, enum DataTypes type) : mValue(value), mType(type) {}
+	Field() : _value(nullptr), _type(DB_TYPE_UNKNOWN) {}
+	Field(const char* value, enum DataTypes type) : _value(value), _type(type) {}
 	~Field() {}
 
-	enum DataTypes GetType() const { return mType; }
-	bool IsNULL() const { return mValue == NULL; }
+	DataTypes getType() const { return _type; }
+	bool isNull() const { return _value == nullptr; }
 
-	const char* GetString() const { return mValue; }
-	std::string GetCppString() const
+	const char* getCStr() const { return _value; }
+	std::string getString() const
 	{
-		return mValue ? mValue : "";                    // std::string s = 0 has undefined result in C++
+		//std::string s = 0 has undefined result
+		return _value ? _value : "";
 	}
-	double GetDouble() const { return mValue ? static_cast<double>(atof(mValue)) : 0.0; }
-	float GetFloat() const { return static_cast<float>(GetDouble()); }
-	bool GetBool() const { return mValue ? atoi(mValue) > 0 : false; }
-	Int32 GetInt32() const { return mValue ? static_cast<Int32>(atol(mValue)) : Int32(0); }
-	Int8 GetInt8() const { return mValue ? static_cast<Int8>(atol(mValue)) : Int8(0); }
-	UInt8 GetUInt8() const { return mValue ? static_cast<UInt8>(atol(mValue)) : UInt8(0); }
-	UInt16 GetUInt16() const { return mValue ? static_cast<UInt16>(atol(mValue)) : UInt16(0); }
-	Int16 GetInt16() const { return mValue ? static_cast<Int16>(atol(mValue)) : Int16(0); }
-	UInt32 GetUInt32() const { return mValue ? static_cast<UInt32>(atol(mValue)) : UInt32(0); }
-	UInt64 GetUInt64() const
+	double getDouble() const { return _value ? static_cast<double>(atof(_value)) : 0.0; }
+	float getFloat() const { return static_cast<float>(getDouble()); }
+	bool getBool() const { return _value ? atoi(_value) > 0 : false; }
+	Int32 getInt32() const { return _value ? static_cast<Int32>(atol(_value)) : Int32(0); }
+	Int8 getInt8() const { return _value ? static_cast<Int8>(atol(_value)) : Int8(0); }
+	UInt8 getUInt8() const { return _value ? static_cast<UInt8>(atol(_value)) : UInt8(0); }
+	UInt16 getUInt16() const { return _value ? static_cast<UInt16>(atol(_value)) : UInt16(0); }
+	Int16 getInt16() const { return _value ? static_cast<Int16>(atol(_value)) : Int16(0); }
+	UInt32 getUInt32() const { return _value ? static_cast<UInt32>(atol(_value)) : UInt32(0); }
+	UInt64 getUInt64() const
 	{
-		if (!mValue)
+		if (!_value)
 			return 0;
 
 		UInt64 parsedVal;
-		if (!Poco::NumberParser::tryParseUnsigned64(mValue,parsedVal))
+		if (!Poco::NumberParser::tryParseUnsigned64(_value,parsedVal))
 			return 0;
 
 		return parsedVal;
 	}
 
-
-	void SetType(enum DataTypes type) { mType = type; }
+	void setType(DataTypes type) { _type = type; }
 	//no need for memory allocations to store resultset field strings
 	//all we need is to cache pointers returned by different DBMS APIs
-	void SetValue(const char* value) { mValue = value; };
-
+	void setValue(const char* value) { _value = value; };
 private:
-	Field(Field const&);
-	Field& operator=(Field const&);
-
-	const char* mValue;
-	enum DataTypes mType;
+	const char* _value;
+	enum DataTypes _type;
 };

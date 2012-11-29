@@ -22,43 +22,50 @@
 
 #include <Poco/String.h>
 
+SqlPreparedStatement::SqlPreparedStatement( const char* sqlText, SqlConnection& conn ) : 
+	_numParams(0), _numColumns(0), _isQuery(false), _prepared(false), 
+	_stmtSql(sqlText), _stmtLen(strlen(sqlText)), _conn(conn) { }
+
 //////////////////////////////////////////////////////////////////////////
-SqlPlainPreparedStatement::SqlPlainPreparedStatement( const std::string& fmt, SqlConnection& conn ) : SqlPreparedStatement(fmt, conn)
+SqlPlainPreparedStatement::SqlPlainPreparedStatement( const char* sqlText, SqlConnection& conn ) : 
+	SqlPreparedStatement(sqlText, conn) {}
+
+void SqlPlainPreparedStatement::prepare()
 {
-	m_bPrepared = true;
-	m_nParams = std::count(begin(m_szFmt), end(m_szFmt), '?');
-	m_bIsQuery = (m_szFmt.length() >= 6) && (!Poco::icompare(m_szFmt.substr(0,6), "select"));
+	_numParams = std::count(_stmtSql, _stmtSql+_stmtLen, '?');
+	_isQuery = !strnicmp("select",_stmtSql,6);
+	_prepared = true;
 }
 
 void SqlPlainPreparedStatement::bind( const SqlStmtParameters& holder )
 {
+	poco_assert(isPrepared());
+
 	//verify if we bound all needed input parameters
-	if(m_nParams != holder.boundParams())
+	if (_numParams != holder.boundParams())
 	{
-		poco_bugcheck();
+		poco_bugcheck_msg("Not all parameters bound in SqlPlainPreparedStatement");
 		return;
 	}
 
 	//reset resulting plain SQL request
-	m_szPlainRequest = m_szFmt;
+	_preparedSql = _stmtSql;
 	size_t nLastPos = 0;
 
-	SqlStmtParameters::ParameterContainer const& _args = holder.params();
-
-	SqlStmtParameters::ParameterContainer::const_iterator iter_last = _args.end();
-	for (SqlStmtParameters::ParameterContainer::const_iterator iter = _args.begin(); iter != iter_last; ++iter)
+	const SqlStmtParameters::ParameterContainer& holderArgs = holder.params();
+	for (auto it=holderArgs.cbegin(); it!=holderArgs.cend(); ++it)
 	{
-		//bind parameter
-		const SqlStmtFieldData& data = (*iter);
+		const SqlStmtField& data = (*it);
 
-		std::ostringstream fmt;
-		this->DataToString(data, fmt);
-
-		nLastPos = m_szPlainRequest.find('?', nLastPos);
+		nLastPos = _preparedSql.find('?', nLastPos);
 		if(nLastPos != std::string::npos)
 		{
+			//bind parameter
+			std::ostringstream fmt;
+			dataToString(data, fmt);
+
 			std::string tmp = fmt.str();
-			m_szPlainRequest.replace(nLastPos, 1, tmp);
+			_preparedSql.replace(nLastPos, 1, tmp);
 			nLastPos += tmp.length();
 		}
 	}
@@ -66,35 +73,47 @@ void SqlPlainPreparedStatement::bind( const SqlStmtParameters& holder )
 
 bool SqlPlainPreparedStatement::execute()
 {
-	if(m_szPlainRequest.empty())
+	poco_assert(isPrepared());
+
+	if (_preparedSql.empty())
 		return false;
 
-	return m_pConn.Execute(m_szPlainRequest.c_str());
+	return _conn.execute(_preparedSql.c_str());
+}
+
+std::string SqlPlainPreparedStatement::getSqlString( bool withValues/*=false*/ ) const 
+{
+	if (withValues)
+		return _preparedSql;
+
+	return SqlPlainPreparedStatement::getSqlString(withValues);
 }
 
 #include <Poco/HexBinaryEncoder.h>
+#include "ConcreteDatabase.h"
 
-void SqlPlainPreparedStatement::DataToString( const SqlStmtFieldData& data, std::ostringstream& fmt )
+void SqlPlainPreparedStatement::dataToString( const SqlStmtField& data, std::ostringstream& fmt ) const
 {
 	switch (data.type())
 	{
-		case FIELD_BOOL:    fmt << "'" << UInt32(data.toBool()) << "'";     break;
-		case FIELD_UI8:     fmt << "'" << UInt32(data.toUint8()) << "'";    break;
-		case FIELD_UI16:    fmt << "'" << UInt32(data.toUint16()) << "'";   break;
-		case FIELD_UI32:    fmt << "'" << data.toUint32() << "'";           break;
-		case FIELD_UI64:    fmt << "'" << data.toUint64() << "'";           break;
-		case FIELD_I8:      fmt << "'" << Int32(data.toInt8()) << "'";      break;
-		case FIELD_I16:     fmt << "'" << Int32(data.toInt16()) << "'";     break;
-		case FIELD_I32:     fmt << "'" << data.toInt32() << "'";            break;
-		case FIELD_I64:     fmt << "'" << data.toInt64() << "'";            break;
-		case FIELD_FLOAT:   fmt << "'" << data.toFloat() << "'";            break;
-		case FIELD_DOUBLE:  fmt << "'" << data.toDouble() << "'";           break;
-		case FIELD_STRING:
+	case SqlStmtField::FIELD_BOOL:    fmt << "'" << UInt32(data.toBool()) << "'";     break;
+		case SqlStmtField::FIELD_UI8:     fmt << "'" << UInt32(data.toUint8()) << "'";    break;
+		case SqlStmtField::FIELD_UI16:    fmt << "'" << UInt32(data.toUint16()) << "'";   break;
+		case SqlStmtField::FIELD_UI32:    fmt << "'" << data.toUint32() << "'";           break;
+		case SqlStmtField::FIELD_UI64:    fmt << "'" << data.toUint64() << "'";           break;
+		case SqlStmtField::FIELD_I8:      fmt << "'" << Int32(data.toInt8()) << "'";      break;
+		case SqlStmtField::FIELD_I16:     fmt << "'" << Int32(data.toInt16()) << "'";     break;
+		case SqlStmtField::FIELD_I32:     fmt << "'" << data.toInt32() << "'";            break;
+		case SqlStmtField::FIELD_I64:     fmt << "'" << data.toInt64() << "'";            break;
+		case SqlStmtField::FIELD_FLOAT:   fmt << "'" << data.toFloat() << "'";            break;
+		case SqlStmtField::FIELD_DOUBLE:  fmt << "'" << data.toDouble() << "'";           break;
+		case SqlStmtField::FIELD_STRING:
 		{
-			std::string tmp = m_pConn.DB().escape_string(data.toString());
+			std::string tmp = _conn.getDB().escape(data.toString());
 			fmt << "'" << tmp << "'";
 		}
-		case FIELD_BINARY:
+		break;
+		case SqlStmtField::FIELD_BINARY:
 		{
 			std::ostringstream ss;
 			Poco::HexBinaryEncoder(ss).write((char*)data.buff(),data.size());
