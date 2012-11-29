@@ -1,4 +1,4 @@
-/* Copyright (C) 2000 MySQL AB
+/* Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -10,8 +10,8 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+   along with this program; if not, write to the Free Software Foundation, Inc.,
+   51 Franklin Street, Suite 500, Boston, MA 02110-1335 USA */
 
 /*
  * Vio Lite.
@@ -30,6 +30,10 @@
 extern "C" {
 #endif /* __cplusplus */
 
+#ifdef __cplusplus
+typedef struct st_vio Vio;
+#endif /* __cplusplus */
+
 enum enum_vio_type
 {
   VIO_CLOSED, VIO_TYPE_TCPIP, VIO_TYPE_SOCKET, VIO_TYPE_NAMEDPIPE,
@@ -44,19 +48,19 @@ enum enum_vio_type
 Vio*	vio_new(my_socket sd, enum enum_vio_type type, uint flags);
 #ifdef __WIN__
 Vio* vio_new_win32pipe(HANDLE hPipe);
-Vio* vio_new_win32shared_memory(NET *net,HANDLE handle_file_map,
+Vio* vio_new_win32shared_memory(HANDLE handle_file_map,
                                 HANDLE handle_map,
                                 HANDLE event_server_wrote,
                                 HANDLE event_server_read,
                                 HANDLE event_client_wrote,
                                 HANDLE event_client_read,
                                 HANDLE event_conn_closed);
-size_t vio_read_pipe(Vio *vio, uchar * buf, size_t size);
-size_t vio_write_pipe(Vio *vio, const uchar * buf, size_t size);
-int vio_close_pipe(Vio * vio);
 #else
 #define HANDLE void *
 #endif /* __WIN__ */
+
+/* backport from 5.6 where it is part of PSI, not vio_*() */
+int	mysql_socket_shutdown(my_socket mysql_socket, int how);
 
 void	vio_delete(Vio* vio);
 int	vio_close(Vio* vio);
@@ -85,9 +89,19 @@ int	vio_errno(Vio*vio);
 my_socket vio_fd(Vio*vio);
 /* Remote peer's address and name in text form */
 my_bool vio_peer_addr(Vio *vio, char *buf, uint16 *port, size_t buflen);
-my_bool	vio_poll_read(Vio *vio,uint timeout);
-my_bool vio_peek_read(Vio *vio, uint *bytes);
+my_bool vio_poll_read(Vio *vio, uint timeout);
+my_bool vio_is_connected(Vio *vio);
 ssize_t vio_pending(Vio *vio);
+
+my_bool vio_get_normalized_ip_string(const struct sockaddr *addr, int addr_length,
+                                     char *ip_string, size_t ip_string_size);
+
+my_bool vio_is_no_name_error(int err_code);
+
+int vio_getnameinfo(const struct sockaddr *sa,
+                    char *hostname, size_t hostname_size,
+                    char *port, size_t port_size,
+                    int flags);
 
 #ifdef HAVE_OPENSSL
 #include <openssl/opensslv.h>
@@ -110,32 +124,33 @@ typedef my_socket YASSL_SOCKET_T;
 #include <openssl/err.h>
 
 #ifndef EMBEDDED_LIBRARY
+enum enum_ssl_init_error
+{
+  SSL_INITERR_NOERROR= 0, SSL_INITERR_CERT, SSL_INITERR_KEY, 
+  SSL_INITERR_NOMATCH, SSL_INITERR_BAD_PATHS, SSL_INITERR_CIPHERS, 
+  SSL_INITERR_MEMFAIL, SSL_INITERR_LASTERR
+};
+const char* sslGetErrString(enum enum_ssl_init_error err);
 
 struct st_VioSSLFd
 {
   SSL_CTX *ssl_context;
 };
 
-int sslaccept(struct st_VioSSLFd*, Vio *, long timeout);
-int sslconnect(struct st_VioSSLFd*, Vio *, long timeout);
+int sslaccept(struct st_VioSSLFd*, Vio *, long timeout, unsigned long *errptr);
+int sslconnect(struct st_VioSSLFd*, Vio *, long timeout, unsigned long *errptr);
 
 struct st_VioSSLFd
 *new_VioSSLConnectorFd(const char *key_file, const char *cert_file,
 		       const char *ca_file,  const char *ca_path,
-		       const char *cipher);
+		       const char *cipher, enum enum_ssl_init_error* error);
 struct st_VioSSLFd
 *new_VioSSLAcceptorFd(const char *key_file, const char *cert_file,
 		      const char *ca_file,const char *ca_path,
-		      const char *cipher);
+		      const char *cipher, enum enum_ssl_init_error* error);
 void free_vio_ssl_acceptor_fd(struct st_VioSSLFd *fd);
 #endif /* ! EMBEDDED_LIBRARY */
 #endif /* HAVE_OPENSSL */
-
-#ifdef HAVE_SMEM
-size_t vio_read_shared_memory(Vio *vio, uchar * buf, size_t size);
-size_t vio_write_shared_memory(Vio *vio, const uchar * buf, size_t size);
-int vio_close_shared_memory(Vio * vio);
-#endif
 
 void vio_end(void);
 
@@ -158,6 +173,8 @@ void vio_end(void);
 #define vio_close(vio)				((vio)->vioclose)(vio)
 #define vio_peer_addr(vio, buf, prt, buflen)	(vio)->peer_addr(vio, buf, prt, buflen)
 #define vio_timeout(vio, which, seconds)	(vio)->timeout(vio, which, seconds)
+#define vio_poll_read(vio, timeout)             (vio)->poll_read(vio, timeout)
+#define vio_is_connected(vio)                   (vio)->is_connected(vio)
 #endif /* !defined(DONT_MAP_VIO) */
 
 /* This enumerator is used in parser - should be always visible */
@@ -203,6 +220,9 @@ struct st_vio
   my_bool (*was_interrupted)(Vio*);
   int     (*vioclose)(Vio*);
   void	  (*timeout)(Vio*, unsigned int which, unsigned int timeout);
+  my_bool (*poll_read)(Vio *vio, uint timeout);
+  my_bool (*is_connected)(Vio*);
+  my_bool (*has_data) (Vio*);
 #ifdef HAVE_OPENSSL
   void	  *ssl_arg;
 #endif
@@ -216,7 +236,11 @@ struct st_vio
   HANDLE  event_conn_closed;
   size_t  shared_memory_remain;
   char    *shared_memory_pos;
-  NET     *net;
 #endif /* HAVE_SMEM */
+#ifdef _WIN32
+  OVERLAPPED pipe_overlapped;
+  DWORD read_timeout_ms;
+  DWORD write_timeout_ms;
+#endif
 };
 #endif /* vio_violite_h_ */

@@ -1,4 +1,4 @@
-/* Copyright (C) 2000 MySQL AB
+/* Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -10,8 +10,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+   along with this program; if not, write to the Free Software Foundation,
+   Inc., 51 Franklin Street, Suite 500, Boston, MA 02110-1335 USA */
+
 
 /* This file includes constants used with all databases */
 
@@ -30,9 +31,6 @@
 #define EOVERFLOW 84
 #endif
 
-#if !defined(USE_MY_FUNC) && !defined(THREAD)
-#include <my_nosys.h>			/* For faster code, after test */
-#endif	/* USE_MY_FUNC */
 #endif	/* stdin */
 #include <my_list.h>
 
@@ -96,14 +94,6 @@ enum ha_key_alg {
   HA_KEY_ALG_RTREE=	2,		/* R-tree, for spatial searches */
   HA_KEY_ALG_HASH=	3,		/* HASH keys (HEAP tables) */
   HA_KEY_ALG_FULLTEXT=	4		/* FULLTEXT (MyISAM tables) */
-};
-
-	/* Index and table build methods */
-
-enum ha_build_method { 
-  HA_BUILD_DEFAULT, 
-  HA_BUILD_ONLINE,
-  HA_BUILD_OFFLINE 
 };
 
         /* Storage media types */ 
@@ -204,12 +194,7 @@ enum ha_extra_function {
   HA_EXTRA_ADD_CHILDREN_LIST,
   HA_EXTRA_ATTACH_CHILDREN,
   HA_EXTRA_IS_ATTACHED_CHILDREN,
-  HA_EXTRA_DETACH_CHILDREN,
-  HA_EXTRA_ORDERBY_LIMIT,
-  HA_EXTRA_NO_ORDERBY_LIMIT,
-  /* Inform handler we will force a close as part of flush */
-  HA_EXTRA_PREPARE_FOR_FORCED_CLOSE,
-  HA_EXTRA_ALLOW_LOG_DELETE
+  HA_EXTRA_DETACH_CHILDREN
 };
 
 /* Compatible option, to be deleted in 6.0 */
@@ -252,10 +237,7 @@ enum ha_base_keytype {
 
 #define HA_MAX_KEYTYPE	31		/* Must be log2-1 */
 
-/*
-  These flags kan be OR:ed to key-flag
-  Note that these can only be up to 16 bits!
-*/
+	/* These flags kan be OR:ed to key-flag */
 
 #define HA_NOSAME		 1	/* Set if not dupplicated records */
 #define HA_PACK_KEY		 2	/* Pack string key to previous key */
@@ -266,15 +248,23 @@ enum ha_base_keytype {
 #define HA_SPATIAL		1024    /* For spatial search */
 #define HA_NULL_ARE_EQUAL	2048	/* NULL in key are cmp as equal */
 #define HA_GENERATED_KEY	8192	/* Automaticly generated key */
-#define HA_RTREE_INDEX	        16384	/* For RTREE search */
 
         /* The combination of the above can be used for key type comparison. */
 #define HA_KEYFLAG_MASK (HA_NOSAME | HA_PACK_KEY | HA_AUTO_KEY | \
                          HA_BINARY_PACK_KEY | HA_FULLTEXT | HA_UNIQUE_CHECK | \
-                         HA_SPATIAL | HA_NULL_ARE_EQUAL | HA_GENERATED_KEY | \
-                         HA_RTREE_INDEX)
+                         HA_SPATIAL | HA_NULL_ARE_EQUAL | HA_GENERATED_KEY)
 
-#define HA_KEY_HAS_PART_KEY_SEG 65536   /* Key contains partial segments */
+/*
+  Key contains partial segments.
+
+  This flag is internal to the MySQL server by design. It is not supposed
+  neither to be saved in FRM-files, nor to be passed to storage engines.
+  It is intended to pass information into internal static sort_keys(KEY *,
+  KEY *) function.
+
+  This flag can be calculated -- it's based on key lengths comparison.
+*/
+#define HA_KEY_HAS_PART_KEY_SEG 65536
 
 	/* Automatic bits in key-flag */
 
@@ -285,17 +275,6 @@ enum ha_base_keytype {
 #define HA_USES_PARSER           16384  /* Fulltext index uses [pre]parser */
 #define HA_USES_BLOCK_SIZE	 ((uint) 32768)
 #define HA_SORT_ALLOWS_SAME      512    /* Intern bit when sorting records */
-#if MYSQL_VERSION_ID < 0x50200
-/*
-  Key has a part that can have end space.  If this is an unique key
-  we have to handle it differently from other unique keys as we can find
-  many matching rows for one key (because end space are not compared)
-*/
-#define HA_END_SPACE_KEY      0 /* was: 4096 */
-#else
-#error HA_END_SPACE_KEY is obsolete, please remove it
-#endif
-
 
 	/* These flags can be added to key-seg-flag */
 
@@ -327,10 +306,8 @@ enum ha_base_keytype {
 #define HA_OPTION_RELIES_ON_SQL_LAYER   512
 #define HA_OPTION_NULL_FIELDS		1024
 #define HA_OPTION_PAGE_CHECKSUM		2048
-#define HA_OPTION_TEMP_COMPRESS_RECORD  (1L << 15)      /* set by isamchk */
-#define HA_OPTION_READ_ONLY_DATA        (1L << 16)      /* Set by isamchk */
-#define HA_OPTION_NO_CHECKSUM           (1L << 17)
-#define HA_OPTION_NO_DELAY_KEY_WRITE    (1L << 18)
+#define HA_OPTION_TEMP_COMPRESS_RECORD	((uint) 16384)	/* set by isamchk */
+#define HA_OPTION_READ_ONLY_DATA	((uint) 32768)	/* Set by isamchk */
 
 	/* Bits in flag to create() */
 
@@ -372,7 +349,7 @@ enum ha_base_keytype {
 /*
   update the 'variable' part of the info:
   handler::records, deleted, data_file_length, index_file_length,
-  delete_length, check_time, mean_rec_length
+  check_time, mean_rec_length
 */
 #define HA_STATUS_VARIABLE      16
 /*
@@ -385,6 +362,11 @@ enum ha_base_keytype {
   update handler::auto_increment_value
 */
 #define HA_STATUS_AUTO          64
+/*
+  Get also delete_length when HA_STATUS_VARIABLE is called. It's ok to set it also
+  when only HA_STATUS_VARIABLE but it won't be used.
+*/
+#define HA_STATUS_VARIABLE_EXTRA 128
 
 /*
   Errorcodes given by handler functions
@@ -453,22 +435,22 @@ enum ha_base_keytype {
 /* row not actually updated: new values same as the old values */
 #define HA_ERR_RECORD_IS_THE_SAME 169
 /* It is not possible to log this statement */
-#define HA_ERR_LOGGING_IMPOSSIBLE 170
-#define HA_ERR_TABLESPACE_EXIST   171
-/* The event was corrupt, leading to illegal data being read */
-#define HA_ERR_CORRUPT_EVENT      172
-#define HA_ERR_NEW_FILE	          173	 /* New file format */
-/* The event could not be processed no other handler error happened */
-#define HA_ERR_ROWS_EVENT_APPLY   174
-#define HA_ERR_INITIALIZATION     175    /* Error during initialization */
-#define HA_ERR_FILE_TOO_SHORT	  176	 /* File too short */
-#define HA_ERR_WRONG_CRC	  177	 /* Wrong CRC on page */
-#define HA_ERR_LOCK_OR_ACTIVE_TRANSACTION 178
-#define HA_ERR_NO_SUCH_TABLESPACE 179
-#define HA_ERR_TABLESPACE_NOT_EMPTY 180
-#define HA_ERR_TABLESPACE_DATAFILE_EXIST 181
-#define HA_ERR_ROW_NOT_VISIBLE    182
-#define HA_ERR_LAST               182    /* Copy of last error nr */
+#define HA_ERR_LOGGING_IMPOSSIBLE 170    /* It is not possible to log this
+                                            statement */
+#define HA_ERR_CORRUPT_EVENT      171    /* The event was corrupt, leading to
+                                            illegal data being read */
+#define HA_ERR_NEW_FILE	          172	 /* New file format */
+#define HA_ERR_ROWS_EVENT_APPLY   173    /* The event could not be processed
+                                            no other hanlder error happened */
+#define HA_ERR_INITIALIZATION     174    /* Error during initialization */
+#define HA_ERR_FILE_TOO_SHORT	  175	 /* File too short */
+#define HA_ERR_WRONG_CRC	  176	 /* Wrong CRC on page */
+#define HA_ERR_TOO_MANY_CONCURRENT_TRXS 177 /*Too many active concurrent transactions */
+#define HA_ERR_INDEX_COL_TOO_LONG 178	 /* Index column length exceeds limit */
+#define HA_ERR_INDEX_CORRUPT      179	 /* Index corrupted */
+#define HA_ERR_UNDO_REC_TOO_BIG   180    /* Undo log record too big */
+#define HA_ERR_TABLE_IN_FK_CHECK  181    /* Table being used in foreign key check */
+#define HA_ERR_LAST               181    /* Copy of last error nr */
 
 /* Number of different errors */
 #define HA_ERR_ERRORS            (HA_ERR_LAST - HA_ERR_FIRST + 1)
@@ -501,14 +483,6 @@ typedef ulong key_part_map;
 #define MBR_DATA        16384
 #define SEARCH_NULL_ARE_EQUAL 32768	/* NULL in keys are equal */
 #define SEARCH_NULL_ARE_NOT_EQUAL 65536	/* NULL in keys are not equal */
-/* Use this when inserting a key in position order */
-#define SEARCH_INSERT   SEARCH_NULL_ARE_NOT_EQUAL*2
-/* Only part of the key is specified while reading */
-#define SEARCH_PART_KEY SEARCH_INSERT*2
-/* Used when user key (key 2) contains transaction id's */
-#define SEARCH_USER_KEY_HAS_TRANSID SEARCH_PART_KEY*2
-/* Used when page key (key 1) contains transaction id's */
-#define SEARCH_PAGE_KEY_HAS_TRANSID SEARCH_USER_KEY_HAS_TRANSID*2
 
 	/* bits in opt_flag */
 #define QUICK_USED	1
@@ -547,41 +521,15 @@ enum data_file_type {
 
 /* For key ranges */
 
-/* from -inf */
 #define NO_MIN_RANGE	1
-
-/* to +inf */
 #define NO_MAX_RANGE	2
-
-/*  X < key, i.e. not including the left endpoint */
 #define NEAR_MIN	4
-
-/* X > key, i.e. not including the right endpoint */
 #define NEAR_MAX	8
-
-/* 
-  This flag means that index is a unique index, and the interval is 
-  equivalent to "AND(keypart_i = const_i)", where all of const_i are not NULLs.
-*/
 #define UNIQUE_RANGE	16
-
-/* 
-  This flag means that the interval is equivalent to 
-  "AND(keypart_i = const_i)", where not all key parts may be used but all of 
-  const_i are not NULLs.
-*/
 #define EQ_RANGE	32
-
-/*
-  This flag has the same meaning as UNIQUE_RANGE, except that for at least
-  one keypart the condition is "keypart IS NULL". 
-*/
 #define NULL_RANGE	64
-
 #define GEOM_FLAG      128
-
 #define SKIP_RANGE     256
-#define EMPTY_RANGE    512
 
 typedef struct st_key_range
 {
@@ -621,6 +569,8 @@ typedef ulong		ha_rows;
 #define HA_VARCHAR_PACKLENGTH(field_length) ((field_length) < 256 ? 1 :2)
 
 /* invalidator function reference for Query Cache */
+C_MODE_START
 typedef void (* invalidator_by_filename)(const char * filename);
+C_MODE_END
 
 #endif /* _my_base_h */

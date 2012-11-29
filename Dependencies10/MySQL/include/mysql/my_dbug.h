@@ -1,4 +1,4 @@
-/* Copyright (C) 2000 MySQL AB
+/* Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved. 
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -11,10 +11,20 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
-#ifndef _dbug_h
-#define _dbug_h
+#ifndef MY_DBUG_INCLUDED
+#define MY_DBUG_INCLUDED
+
+#ifndef __WIN__
+#ifdef HAVE_SYS_TYPES_H
+#include <sys/types.h>
+#endif
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+#include <signal.h>
+#endif  /* not __WIN__ */
 
 #ifdef  __cplusplus
 extern "C" {
@@ -45,7 +55,7 @@ extern void _db_enter_(const char *_func_, const char *_file_, uint _line_,
                        struct _db_stack_frame_ *_stack_frame_);
 extern  void _db_return_(uint _line_, struct _db_stack_frame_ *_stack_frame_);
 extern  void _db_pargs_(uint _line_,const char *keyword);
-extern  void _db_doprnt_ _VARARGS((const char *format,...))
+extern  void _db_doprnt_(const char *format,...)
   ATTRIBUTE_FORMAT(printf, 1, 2);
 extern  void _db_dump_(uint _line_,const char *keyword,
                        const unsigned char *memory, size_t length);
@@ -54,6 +64,7 @@ extern  void _db_lock_file_(void);
 extern  void _db_unlock_file_(void);
 extern  FILE *_db_fp_(void);
 extern  void _db_flush_();
+extern  const char* _db_get_func_(void);
 
 #define DBUG_ENTER(a) struct _db_stack_frame_ _db_stack_frame_; \
         _db_enter_ (a,__FILE__,__LINE__,&_db_stack_frame_)
@@ -87,7 +98,6 @@ extern  void _db_flush_();
 #define DBUG_EXPLAIN_INITIAL(buf,len) _db_explain_init_((buf),(len))
 #define DEBUGGER_OFF                    do { _dbug_on_= 0; } while(0)
 #define DEBUGGER_ON                     do { _dbug_on_= 1; } while(0)
-#define IF_DBUG(A) A
 #ifndef __WIN__
 #define DBUG_ABORT()                    (_db_flush_(), abort())
 #else
@@ -100,6 +110,30 @@ extern  void _db_flush_();
                      (void)_CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE),\
                      (void)_CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR),\
                      _exit(3))
+#endif
+#define DBUG_CHECK_CRASH(func, op) \
+  do { char _dbuf_[255]; strxnmov(_dbuf_, sizeof(_dbuf_)-1, (func), (op)); \
+    DBUG_EXECUTE_IF(_dbuf_, DBUG_ABORT()); } while(0)
+#define DBUG_CRASH_ENTER(func) \
+  DBUG_ENTER(func); DBUG_CHECK_CRASH(func, "_crash_enter")
+#define DBUG_CRASH_RETURN(val) \
+  DBUG_CHECK_CRASH(_db_get_func_(), "_crash_return")
+#define DBUG_CRASH_VOID_RETURN \
+  DBUG_CHECK_CRASH (_db_get_func_(), "_crash_return")
+
+/*
+  Make the program fail, without creating a core file.
+  abort() will send SIGABRT which (most likely) generates core.
+  Use SIGKILL instead, which cannot be caught.
+  We also pause the current thread, until the signal is actually delivered.
+  An alternative would be to use _exit(EXIT_FAILURE),
+  but then valgrind would report lots of memory leaks.
+ */
+#ifdef __WIN__
+#define DBUG_SUICIDE() DBUG_ABORT()
+#else
+extern void _db_suicide_();
+#define DBUG_SUICIDE() (_db_flush_(), _db_suicide_())
 #endif
 
 #else                                           /* No debugger */
@@ -130,11 +164,31 @@ extern  void _db_flush_();
 #define DBUG_EXPLAIN_INITIAL(buf,len)
 #define DEBUGGER_OFF                    do { } while(0)
 #define DEBUGGER_ON                     do { } while(0)
-#define IF_DBUG(A)
-#define DBUG_ABORT()                    abort()
+#define DBUG_ABORT()                    do { } while(0)
+#define DBUG_CRASH_ENTER(func)
+#define DBUG_CRASH_RETURN(val)          do { return(val); } while(0)
+#define DBUG_CRASH_VOID_RETURN          do { return; } while(0)
+#define DBUG_SUICIDE()                  do { } while(0)
 
 #endif
-#ifdef  __cplusplus
+
+#ifdef EXTRA_DEBUG
+/**
+  Sync points allow us to force the server to reach a certain line of code
+  and block there until the client tells the server it is ok to go on.
+  The client tells the server to block with SELECT GET_LOCK()
+  and unblocks it with SELECT RELEASE_LOCK(). Used for debugging difficult
+  concurrency problems
+*/
+#define DBUG_SYNC_POINT(lock_name,lock_timeout) \
+ debug_sync_point(lock_name,lock_timeout)
+void debug_sync_point(const char* lock_name, uint lock_timeout);
+#else
+#define DBUG_SYNC_POINT(lock_name,lock_timeout)
+#endif /* EXTRA_DEBUG */
+
+#ifdef	__cplusplus
 }
 #endif
-#endif
+
+#endif /* MY_DBUG_INCLUDED */

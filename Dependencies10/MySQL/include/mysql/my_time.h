@@ -1,4 +1,4 @@
-/* Copyright (C) 2004-2005 MySQL AB
+/* Copyright (c) 2004, 2011, Oracle and/or its affiliates. All rights reserved.
 
  This program is free software; you can redistribute it and/or modify
  it under the terms of the GNU General Public License as published by
@@ -11,7 +11,7 @@
 
  You should have received a copy of the GNU General Public License
  along with this program; if not, write to the Free Software
- Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
 /*
   This is a private header of sql-common library, containing
@@ -35,8 +35,6 @@ extern uchar days_in_month[];
 
   Using the system built in time_t is not an option as
   we rely on the above requirements in the time functions
-
-  For example QNX has an unsigned time_t type
 */
 typedef long my_time_t;
 
@@ -51,6 +49,19 @@ typedef long my_time_t;
 
 /* two-digit years < this are 20..; >= this are 19.. */
 #define YY_PART_YEAR	   70
+
+/*
+  check for valid times only if the range of time_t is greater than
+  the range of my_time_t
+*/
+#if SIZEOF_TIME_T > 4 || defined(TIME_T_UNSIGNED)
+# define IS_TIME_T_VALID_FOR_TIMESTAMP(x) \
+    ((x) <= TIMESTAMP_MAX_VALUE && \
+     (x) >= TIMESTAMP_MIN_VALUE)
+#else
+# define IS_TIME_T_VALID_FOR_TIMESTAMP(x) \
+    ((x) >= TIMESTAMP_MIN_VALUE)
+#endif
 
 /* Flags to str_to_datetime */
 #define TIME_FUZZY_DATE		1
@@ -74,12 +85,12 @@ typedef long my_time_t;
                                 TIME_MAX_MINUTE * 60L + TIME_MAX_SECOND)
 
 my_bool check_date(const MYSQL_TIME *ltime, my_bool not_zero_date,
-                   ulong flags, int *was_cut);
+                   ulonglong flags, int *was_cut);
 enum enum_mysql_timestamp_type
 str_to_datetime(const char *str, uint length, MYSQL_TIME *l_time,
-                uint flags, int *was_cut);
+                ulonglong flags, int *was_cut);
 longlong number_to_datetime(longlong nr, MYSQL_TIME *time_res,
-                            uint flags, int *was_cut);
+                            ulonglong flags, int *was_cut);
 ulonglong TIME_to_ulonglong_datetime(const MYSQL_TIME *);
 ulonglong TIME_to_ulonglong_date(const MYSQL_TIME *);
 ulonglong TIME_to_ulonglong_time(const MYSQL_TIME *);

@@ -1,4 +1,4 @@
-/* Copyright (C) 2000 MySQL AB
+/* Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -11,7 +11,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
 #ifndef _tree_h
 #define _tree_h
@@ -20,6 +20,7 @@ extern "C" {
 #endif
 
 #include "my_base.h"		/* get 'enum ha_rkey_function' */
+#include "my_alloc.h"           /* MEM_ROOT */
 
 /* Worst case tree is half full. This gives use 2^(MAX_TREE_HEIGHT/2) leafs */
 #define MAX_TREE_HEIGHT	64
@@ -66,8 +67,8 @@ void init_tree(TREE *tree, ulong default_alloc_size, ulong memory_limit,
 	       tree_element_free free_element, void *custom_arg);
 void delete_tree(TREE*);
 void reset_tree(TREE*);
-
-  /* similar to delete tree, except we do not my_free() blocks in mem_root */
+  /* similar to delete tree, except we do not my_free() blocks in mem_root
+   */
 #define is_tree_inited(tree) ((tree)->root != 0)
 
 	/* Functions on leafs */
@@ -86,7 +87,6 @@ void *tree_search_next(TREE *tree, TREE_ELEMENT ***last_pos, int l_offs,
                        int r_offs);
 ha_rows tree_record_pos(TREE *tree, const void *key, 
                      enum ha_rkey_function search_flag, void *custom_arg);
-#define reset_free_element(tree) (tree)->free= 0
 
 #define TREE_ELEMENT_EXTRA_SIZE (sizeof(TREE_ELEMENT) + sizeof(void*))
 

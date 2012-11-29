@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2008 MySQL AB, 2008-2009 Sun Microsystems, Inc.
+/* Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -11,12 +11,14 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
 #ifndef _lf_h
 #define _lf_h
 
 #include <my_atomic.h>
+
+C_MODE_START
 
 /*
   Helpers to define both func() and _func(), where
@@ -185,8 +187,6 @@ typedef struct st_lf_allocator {
   uchar * volatile top;
   uint element_size;
   uint32 volatile mallocs;
-  void (*constructor)(uchar *); /* called, when an object is malloc()'ed */
-  void (*destructor)(uchar *);  /* called, when an object is free()'d    */
 } LF_ALLOCATOR;
 
 void lf_alloc_init(LF_ALLOCATOR *allocator, uint size, uint free_ptr_offset);
@@ -202,22 +202,25 @@ uint lf_alloc_pool_count(LF_ALLOCATOR *allocator);
 #define lf_alloc_get_pins(A)           lf_pinbox_get_pins(&(A)->pinbox)
 #define _lf_alloc_put_pins(PINS)      _lf_pinbox_put_pins(PINS)
 #define lf_alloc_put_pins(PINS)        lf_pinbox_put_pins(PINS)
-#define lf_alloc_direct_free(ALLOC, ADDR) my_free((uchar*)(ADDR), MYF(0))
+#define lf_alloc_direct_free(ALLOC, ADDR) my_free((ADDR))
 
 lock_wrap(lf_alloc_new, void *,
           (LF_PINS *pins),
           (pins),
           &pins->pinbox->pinarray.lock)
 
+C_MODE_END
+
 /*
   extendible hash, lf_hash.c
 */
 #include <hash.h>
 
+C_MODE_START
+
 #define LF_HASH_UNIQUE 1
 
-/* lf_hash overhead per element (that is, sizeof(LF_SLIST) */
-extern const int LF_HASH_OVERHEAD;
+/* lf_hash overhead per element is sizeof(LF_SLIST). */
 
 typedef struct {
   LF_DYNARRAY array;                    /* hash itself */
@@ -255,6 +258,8 @@ int lf_hash_delete(LF_HASH *hash, LF_PINS *pins, const void *key, uint keylen);
 #undef lock_wrap
 #undef nolock_wrap_void
 #undef nolock_wrap
+
+C_MODE_END
 
 #endif
 

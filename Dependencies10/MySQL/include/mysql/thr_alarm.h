@@ -1,4 +1,4 @@
-/* Copyright (C) 2000 MySQL AB
+/* Copyright (c) 2000, 2011, Oracle and/or its affiliates. All rights reserved.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -11,7 +11,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
 /* Prototypes when using thr_alarm library functions */
 
@@ -41,7 +41,7 @@ typedef struct st_alarm_info
 
 void thr_alarm_info(ALARM_INFO *info);
 
-#if defined(DONT_USE_THR_ALARM) || !defined(THREAD)
+#if defined(DONT_USE_THR_ALARM)
 
 #define USE_ALARM_THREAD
 #undef USE_ONE_SIGNAL_HAND
@@ -64,7 +64,7 @@ typedef my_bool ALARM;
 #if defined(__WIN__)
 typedef struct st_thr_alarm_entry
 {
-  rf_SetTimer crono;
+  UINT_PTR crono;
 } thr_alarm_entry;
 
 #else /* System with posix threads */
