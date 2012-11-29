@@ -27,7 +27,6 @@ DirectHiveApp::DirectHiveApp(string suffixDir) : HiveExtApp(suffixDir) {}
 bool DirectHiveApp::initialiseService()
 {
 	_charDb = DatabaseLoader::create(DatabaseLoader::DBTYPE_MYSQL);
-
 	Poco::Logger& dbLogger = Poco::Logger::get("Database");
 
 	string initString;
@@ -44,17 +43,25 @@ bool DirectHiveApp::initialiseService()
 	
 	//pass the db along to character datasource
 	{
+		static const string defaultID = "PlayerUID";
+		static const string defaultWS = "Worldspace";
+
 		Poco::AutoPtr<Poco::Util::AbstractConfiguration> charDBConf(config().createView("Characters"));
-		_charData.reset(new SqlCharDataSource(_logger,
-			_charDb,charDBConf->getString("IDField","PlayerUID"),charDBConf->getString("WSField","Worldspace")));	
+		_charData.reset(new SqlCharDataSource(_logger,_charDb,charDBConf->getString("IDField",defaultID),charDBConf->getString("WSField",defaultWS)));	
 	}
 
 	Poco::AutoPtr<Poco::Util::AbstractConfiguration> objDBConf(config().createView("ObjectDB"));
 	bool useExternalObjDb = objDBConf->getBool("Use",false);
 	if (useExternalObjDb)
 	{
-		try { _objDb = DatabaseLoader::create(objDBConf); } 
-		catch (const DatabaseLoader::CreationError&) { return false; }
+		try 
+		{ 
+			_objDb = DatabaseLoader::create(objDBConf); 
+		} 
+		catch (const DatabaseLoader::CreationError&) 
+		{ 
+			return false; 
+		}
 		
 		Poco::Logger& objDBLogger = Poco::Logger::get("ObjectDB");
 

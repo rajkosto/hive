@@ -24,9 +24,10 @@
 namespace ExtStartup
 {
 	typedef boost::function<HiveExtApp*(string profileFolder)> MakeAppFunction;
-	void ProcessStartup(MakeAppFunction makeAppFunc);
+
+	void InitModule(MakeAppFunction makeAppFunc);
 	void ProcessShutdown();
-}
+};
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>

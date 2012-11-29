@@ -47,7 +47,6 @@ void HiveExtApp::setupClock()
 }
 
 #include "Version.h"
-#include <Poco/Glob.h>
 
 int HiveExtApp::main( const std::vector<std::string>& args )
 {
@@ -55,7 +54,10 @@ int HiveExtApp::main( const std::vector<std::string>& args )
 	setupClock();
 
 	if (!this->initialiseService())
+	{
+		_logger.close();
 		return EXIT_IOERR;
+	}
 
 	return EXIT_OK;
 }

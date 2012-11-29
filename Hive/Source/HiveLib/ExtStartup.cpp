@@ -17,23 +17,6 @@
 */
 
 #include "ExtStartup.h"
-#include <boost/thread.hpp>
-
-namespace
-{
-	unique_ptr<HiveExtApp> gApp;
-	boost::thread gInitThread;
-};
-
-void CALLBACK RVExtension(char *output, int outputSize, const char* function)
-{
-	gInitThread.join();
-
-	if (gApp)
-		gApp->callExtension(function, output, outputSize);
-	else
-		memset(output,0,outputSize);
-}
 
 #include <fcntl.h>
 #include <io.h>
@@ -128,9 +111,11 @@ namespace
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/trim.hpp>
 
-namespace ExtStartup
+namespace
 {
-	void ProcessStartup(MakeAppFunction makeAppFunc)
+	ExtStartup::MakeAppFunction gMakeAppFunc;
+
+	unique_ptr<HiveExtApp> CreateApp()
 	{
 		LPTSTR* argv;
 		int argc;
@@ -159,34 +144,49 @@ namespace ExtStartup
 			SetConsoleTitle(consoleTitle.c_str());
 		}
 
-		gApp.reset(makeAppFunc(serverFolder));
-		gInitThread = boost::thread([argc,argv]()
+		unique_ptr<HiveExtApp> theApp(gMakeAppFunc(serverFolder));
 		{
-			int appRes = gApp->run(argc, argv);
+			int appRes = theApp->run(argc, argv);
 			LocalFree(argv);
 
 			if (appRes == Poco::Util::Application::EXIT_IOERR)
-			{
 				MessageBox(NULL,TEXT("Error connecting to the service"),TEXT("Hive error"),MB_ICONERROR|MB_OK);
-				gApp.reset();
-			}
 			else if (appRes == Poco::Util::Application::EXIT_DATAERR)
-			{
 				MessageBox(NULL,TEXT("Error loading required resources"),TEXT("Hive error"),MB_ICONERROR|MB_OK);
-				gApp.reset();
-			}
 			else if (appRes != Poco::Util::Application::EXIT_OK)
-			{
 				MessageBox(NULL,TEXT("Unknown internal error"),TEXT("Hive error"),MB_ICONERROR|MB_OK);
-				gApp.reset();
-			}
-		});
-	}
 
-	void ProcessShutdown()
-	{
-		gInitThread.join();
-		gApp.reset();
+			if (appRes != Poco::Util::Application::EXIT_OK)
+				return nullptr;
+		}
+
+		return std::move(theApp);
 	}
 };
 
+namespace
+{
+	unique_ptr<HiveExtApp> gApp;
+};
+
+void ExtStartup::InitModule( MakeAppFunction makeAppFunc )
+{
+	gMakeAppFunc = std::move(makeAppFunc);
+}
+
+void ExtStartup::ProcessShutdown()
+{
+	gApp.reset();
+}
+
+void CALLBACK RVExtension(char *output, int outputSize, const char* function)
+{
+	if (!gApp)
+	{
+		gApp = CreateApp();
+		if (!gApp) //error during creation
+			ExitProcess(1);
+	}
+
+	gApp->callExtension(function, output, outputSize);
+}
