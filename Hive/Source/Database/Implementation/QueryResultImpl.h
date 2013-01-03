@@ -23,6 +23,7 @@
 class QueryResultImpl : public QueryResult
 {
 public:
+	QueryResultImpl() {}
 	QueryResultImpl(UInt64 rowCount, size_t fieldCount) : _row(fieldCount), _numFields(fieldCount), _numRows(rowCount) {}
 	~QueryResultImpl() {}
 
@@ -30,8 +31,13 @@ public:
 
 	size_t numFields() const override { return _numFields; }
 	UInt64 numRows() const override { return _numRows; }
+
 protected:
+	void setNumFields(size_t numFields) { _numFields = numFields; }
+	void setNumRows(UInt64 numRows) { _numRows = numRows; }
+
 	vector<Field> _row;
+private:
 	size_t _numFields;
 	UInt64 _numRows;
 };

@@ -23,6 +23,7 @@
 #include <boost/noncopyable.hpp>
 
 #include "Field.h"
+typedef std::vector<std::string> QueryFieldNames;
 
 class QueryResult : public boost::noncopyable
 {
@@ -48,16 +49,24 @@ public:
 	//this will also return number of affected rows for non-SELECT statements
 	virtual UInt64 numRows() const = 0;
 
+	//gets the field names using vendor-specific calls
+	virtual QueryFieldNames fetchFieldNames() const = 0;
+
+	//call after getting all the rows to switch to the next result
+	//false return value means that there's no more results
+	//after this returns false, all the result information is invalid
+	virtual bool nextResult() = 0;
 protected:
 	Field _dummyField;
 };
 
-typedef std::vector<std::string> QueryFieldNames;
-
 class QueryNamedResult : public QueryResult
 {
 public:
-	QueryNamedResult(unique_ptr<QueryResult> query, const QueryFieldNames& names) : _actualRes(std::move(query)), _fieldNames(names) {}
+	QueryNamedResult(unique_ptr<QueryResult> query) : _actualRes(std::move(query)) 
+	{
+		_fieldNames = _actualRes->fetchFieldNames();
+	}
 	~QueryNamedResult() {}
 
 	bool fetchRow() override { return _actualRes->fetchRow(); }
@@ -66,8 +75,12 @@ public:
 	size_t numFields() const override { return _actualRes->numFields(); }
 	UInt64 numRows() const override { return _actualRes->numRows(); }
 
+	//get field names by copy
+	QueryFieldNames fetchFieldNames() const override { return fieldNames(); };
+
 	//named access
 	const Field& operator[] (const std::string& name) const { return (*_actualRes)[fieldIdx(name)]; }
+	//get field names by reference
 	const QueryFieldNames& fieldNames() const { return _fieldNames; }
 
 	size_t fieldIdx(const std::string& name) const
@@ -80,6 +93,18 @@ public:
 		poco_bugcheck_msg("unknown field name");
 		return size_t(-1);
 	}
+
+	//also refreshes the field names
+	bool nextResult() override
+	{ 
+		bool resultValid = _actualRes->nextResult(); 
+		if (resultValid)
+			_fieldNames = _actualRes->fetchFieldNames();
+		else
+			_fieldNames.clear();
+
+		return resultValid;
+	};
 
 protected:
 	unique_ptr<QueryResult> _actualRes;

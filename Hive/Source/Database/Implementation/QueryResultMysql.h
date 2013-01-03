@@ -22,25 +22,21 @@
 
 #include "Shared/Common/Types.h"
 #include "QueryResultImpl.h"
-
-#ifdef WIN32
-#include <winsock2.h>
-#include <mysql/mysql.h>
-#else
-#include <mysql.h>
-#endif
+#include "DatabaseMysql.h"
 
 class QueryResultMysql : public QueryResultImpl
 {
 public:
-	QueryResultMysql(MYSQL_RES* result, MYSQL_FIELD* fields, UInt64 rowCount, size_t fieldCount);
+	QueryResultMysql(MySQLConnection* theConn, const char* sql);
 	~QueryResultMysql();
 
 	bool fetchRow() override;
-private:
-	void finish();
+	QueryFieldNames fetchFieldNames() const override;
 
-	MYSQL_RES* _myRes;
+	bool nextResult() override;
+private:
+	vector<MySQLConnection::ResultInfo> _results;
+	int _currRes;
 };
 
 #endif
