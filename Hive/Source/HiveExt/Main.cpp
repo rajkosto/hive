@@ -47,6 +47,7 @@ int main()
 
 	DllMain(NULL,DLL_PROCESS_ATTACH,NULL);
 	char testOutBuf[4096];
+	RVExtension(testOutBuf,sizeof(testOutBuf),"CHILD:307:");
 	RVExtension(testOutBuf,sizeof(testOutBuf),"CHILD:302:1337:");
 	Sqf::Parameters objStreamStart = boost::get<Sqf::Parameters>(lexical_cast<Sqf::Value>(string(testOutBuf)));
 	poco_assert(boost::get<string>(objStreamStart[0]) == "ObjectStreamStart");

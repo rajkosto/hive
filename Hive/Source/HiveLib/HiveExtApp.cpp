@@ -22,6 +22,9 @@
 #include <boost/optional.hpp>
 
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/algorithm/string/trim.hpp>
+
+#include <boost/date_time/gregorian_calendar.hpp>
 
 void HiveExtApp::setupClock()
 {
@@ -33,17 +36,66 @@ void HiveExtApp::setupClock()
 	string timeType = timeConf->getString("Type","Local");
 
 	if (boost::iequals(timeType,"Custom"))
-		now = utc + pt::duration_from_string(timeConf->getString("Offset","0"));
-	else if (boost::iequals(timeType,"Static"))
 	{
 		now = utc;
-		now -= pt::time_duration(now.time_of_day().hours(),0,0);
-		now += pt::time_duration(timeConf->getInt("Hour",8),0,0);
+
+		const char* defOffset = "0";
+		string offsetStr = timeConf->getString("Offset",defOffset);
+		boost::trim(offsetStr);
+		if (offsetStr.length() < 1)
+			offsetStr = defOffset;
+		
+		try
+		{
+			now += pt::duration_from_string(offsetStr);
+		}
+		catch(const std::exception&)
+		{
+			logger().warning("Invalid value for Time.Offset configuration variable (expected int, given: "+offsetStr+")");
+		}
+	}
+	else if (boost::iequals(timeType,"Static"))
+	{
+		now = pt::second_clock::local_time();
+		try
+		{
+			int hourOfTheDay = timeConf->getInt("Hour");
+			now -= pt::time_duration(now.time_of_day().hours(),0,0);
+			now += pt::time_duration(hourOfTheDay,0,0);
+		}
+		//do not change hour of the day if bad or missing value in config
+		catch(const Poco::NotFoundException&) {}
+		catch(const Poco::SyntaxException&) 
+		{
+			string hourStr = timeConf->getString("Hour","");
+			boost::trim(hourStr);
+			if (hourStr.length() > 0)
+				logger().warning("Invalid value for Time.Hour configuration variable (expected int, given: "+hourStr+")");
+		}
+
+		//change the date
+		{
+			string dateStr = timeConf->getString("Date","");
+			boost::trim(dateStr);
+			if (dateStr.length() > 0) //only if non-empty value
+			{
+				namespace gr = boost::gregorian;
+				try
+				{
+					gr::date newDate = gr::from_uk_string(dateStr);
+					now = pt::ptime(newDate, now.time_of_day());
+				}
+				catch(const std::exception&)
+				{
+					logger().warning("Invalid value for Time.Date configuration variable (expected date, given: "+dateStr+")");
+				}
+			}
+		}
 	}
 	else
 		now = pt::second_clock::local_time();
 
-	_timeOffset =  now - utc;
+	_timeOffset = now - utc;
 }
 
 #include "Version.h"
