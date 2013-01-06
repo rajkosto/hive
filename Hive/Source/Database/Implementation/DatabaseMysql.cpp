@@ -247,7 +247,8 @@ void MySQLConnection::connect()
 		if (_unix_socket.length() > 0)
 			unix_socket = _unix_socket.c_str();
 
-		_myConn = mysql_real_connect(_myHandle, _host.c_str(), _user.c_str(), _password.c_str(), _database.c_str(), _port, unix_socket, CLIENT_REMEMBER_OPTIONS);
+		_myConn = mysql_real_connect(_myHandle, _host.c_str(), _user.c_str(), _password.c_str(), _database.c_str(), 
+			_port, unix_socket, CLIENT_REMEMBER_OPTIONS | CLIENT_MULTI_RESULTS);
 		if (!_myConn)
 		{
 			const char* actionToDo = "connect";
@@ -312,8 +313,11 @@ void MySQLConnection::_MySQLStmtExecute(const SqlPreparedStatement& who, MYSQL_S
 	}
 }
 
-void MySQLConnection::_MySQLQuery(const char* sql)
+bool MySQLConnection::_Query(const char* sql)
 {
+	if (!_myConn)
+		return false;
+
 	int returnVal = mysql_query(_myConn,sql);
 	if (returnVal)
 	{
@@ -321,113 +325,93 @@ void MySQLConnection::_MySQLQuery(const char* sql)
 		bool connLost = IsConnectionLost(returnVal);
 		throw SqlException(returnVal,mysql_error(_myConn),"MySQLQuery",connLost,connLost,sql);
 	}
+
+	return true;
 }
 
-MYSQL_RES* MySQLConnection::_MySQLStoreResult(const char* sql, UInt64& outRowCount, size_t& outFieldCount)
+bool MySQLConnection::_MySQLStoreResult(const char* sql, ResultInfo& outResInfo)
 {
 	MYSQL_RES* outResult = mysql_store_result(_myConn);
+	UInt64 outRowCount = 0;
+	size_t outFieldCount = 0;
 	if (outResult)
 	{
 		outRowCount = mysql_num_rows(outResult);
 		outFieldCount = mysql_num_fields(outResult);
 	}
-	else
+	else if (mysql_field_count(_myConn) == 0) //query doesnt return result set
+	{
+		outFieldCount = mysql_field_count(_myConn);
+		outRowCount = mysql_affected_rows(_myConn);
+	}
+	else //an error occured (no results when there should be)
 	{
 		int resultRetVal = mysql_errno(_myConn);
 		if (resultRetVal)
 			throw SqlException(resultRetVal,mysql_error(_myConn),"MySQLStoreResult",IsConnectionLost(resultRetVal),true,sql);
+	}
+
+	outResInfo.myRes = outResult;
+	outResInfo.numFields = outFieldCount;
+	outResInfo.numRows = outRowCount;
+
+	int moreResults = mysql_next_result(_myConn);
+	if (moreResults == 0)
+		return true;
+	else if (moreResults == -1)
+		return false;
+	else //an error occured
+	{
+		int resultRetVal = mysql_errno(_myConn);
+		if (resultRetVal)
+			throw SqlException(resultRetVal,mysql_error(_myConn),"MySQLNextResult",IsConnectionLost(resultRetVal),true,sql);
 		else
 		{
-			outRowCount = mysql_affected_rows(_myConn);
-			outFieldCount = mysql_field_count(_myConn);
+			poco_bugcheck_msg("Can't fetch MySQL result when there should be one, and no error happened");
+			return false;
 		}
 	}
-	return outResult;
-}
-
-bool MySQLConnection::_Query(const char* sql, MYSQL_RES*& outResult, MYSQL_FIELD*& outFields, UInt64& outRowCount, size_t& outFieldCount)
-{
-	if (!_myConn)
-		return false;
-
-	_MySQLQuery(sql);
-
-	outRowCount = 0;
-	outFieldCount = 0;
-	outResult = _MySQLStoreResult(sql,outRowCount,outFieldCount);
-
-	if (outResult)
-		outFields = mysql_fetch_fields(outResult);
-	else
-		outFields = nullptr;
-
-	return true;
 }
 
 unique_ptr<QueryResult> MySQLConnection::query(const char* sql)
 {
-	MYSQL_RES* result = nullptr;
-	MYSQL_FIELD* fields = nullptr;
-	UInt64 rowCount = 0;
-	size_t fieldCount = 0;
-
-	if(!_Query(sql,result,fields,rowCount,fieldCount))
+	if(!_Query(sql))
 		return nullptr;
 
-	unique_ptr<QueryResult> queryResult(new QueryResultMysql(result, fields, rowCount, fieldCount));
+	//it will fetch the results in the constructor
+	unique_ptr<QueryResult> queryResult(new QueryResultMysql(this,sql));
 	return queryResult;
 }
 
 unique_ptr<QueryNamedResult> MySQLConnection::namedQuery(const char* sql)
 {
-	MYSQL_RES* result = nullptr;
-	MYSQL_FIELD* fields = nullptr;
-	UInt64 rowCount = 0;
-	size_t fieldCount = 0;
-
-	if(!_Query(sql,result,fields,rowCount,fieldCount))
+	if(!_Query(sql))
 		return nullptr;
 
-	QueryFieldNames names(fieldCount);
-	if (fields)
-	{
-		for (size_t i=0; i<fieldCount; i++)
-			names[i] = fields[i].name;
-	}
-	
-	unique_ptr<QueryResult> queryResult(new QueryResultMysql(result, fields, rowCount, fieldCount));
-	return unique_ptr<QueryNamedResult>(new QueryNamedResult(std::move(queryResult),names));
+	//it will fetch the results in the constructor	
+	unique_ptr<QueryResult> queryResult(new QueryResultMysql(this,sql));
+	//fetches the field names in it's constructor, and wraps nextResult to keep them updated
+	return unique_ptr<QueryNamedResult>(new QueryNamedResult(std::move(queryResult)));
 }
 
 bool MySQLConnection::execute(const char* sql)
 {
-	if (!_myConn)
-		return false;
-
-	_MySQLQuery(sql);
-
-	return true;
-}
-
-bool MySQLConnection::_TransactionCmd(const char* sql)
-{
-	_MySQLQuery(sql);
-	return true;
+	return _Query(sql);
 }
 
 bool MySQLConnection::transactionStart()
 {
-	return _TransactionCmd("START TRANSACTION");
+	return _Query("START TRANSACTION");
 }
 
 bool MySQLConnection::transactionCommit()
 {
-	return _TransactionCmd("COMMIT");
+	return _Query("COMMIT");
 }
 
 bool MySQLConnection::transactionRollback()
 {
-	return _TransactionCmd("ROLLBACK");
+	return _Query("ROLLBACK");
 }
 
 size_t MySQLConnection::escapeString(char* to, const char* from, size_t length) const

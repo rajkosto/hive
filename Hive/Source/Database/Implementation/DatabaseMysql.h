@@ -94,17 +94,46 @@ public:
 	bool transactionCommit() override;
 	bool transactionRollback() override;
 
+	struct ResultInfo
+	{
+		void clear()
+		{
+			if (myRes != nullptr)
+			{
+				mysql_free_result(myRes);
+				myRes = nullptr;
+			}
+			numRows = 0;
+			numFields = 0;
+		}
+
+		ResultInfo() : myRes(nullptr) { clear(); }
+		~ResultInfo() { clear(); }
+
+		ResultInfo(ResultInfo&& rhs) : myRes(nullptr)
+		{
+			clear();
+
+			using std::swap;
+			swap(this->myRes,rhs.myRes);
+			swap(this->numFields,rhs.numFields);
+			swap(this->numRows,rhs.numRows);
+		}
+
+		MYSQL_RES* myRes;
+		size_t numFields;
+		UInt64 numRows;
+	};
+	//Returns whether or not there are more results to be fetched (by again calling this method)
+	bool _MySQLStoreResult(const char* sql, ResultInfo& outResInfo);
+
 	MYSQL_STMT* _MySQLStmtInit();
 	void _MySQLStmtPrepare(const SqlPreparedStatement& who, MYSQL_STMT* stmt, const char* sqlText, size_t textLen);
 	void _MySQLStmtExecute(const SqlPreparedStatement& who, MYSQL_STMT* stmt);
 protected:
 	SqlPreparedStatement* createPreparedStatement(const char* sqlText) override;
-
 private:
-	bool _TransactionCmd(const char* sql);
-	bool _Query(const char* sql, MYSQL_RES*& outResult, MYSQL_FIELD*& outFields, UInt64& outRowCount, size_t& outFieldCount);
-	void _MySQLQuery(const char* sql);
-	MYSQL_RES* _MySQLStoreResult(const char* sql, UInt64& outRowCount, size_t& outFieldCount);
+	bool _Query(const char* sql);
 
 	std::string _host, _user, _password, _database;
 	int _port;

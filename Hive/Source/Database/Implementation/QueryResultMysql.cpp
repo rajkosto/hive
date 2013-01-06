@@ -19,6 +19,44 @@
 #ifdef MYSQL_ENABLED
 
 #include "QueryResultMysql.h"
+#include "DatabaseMysql.h"
+
+QueryResultMysql::QueryResultMysql(MySQLConnection* theConn, const char* sql) : _currRes(-1)
+{
+	bool hasAnotherResult = false;
+	MySQLConnection::ResultInfo resInfo;
+	do
+	{
+		hasAnotherResult = theConn->_MySQLStoreResult(sql,resInfo);
+		_results.push_back(std::move(resInfo));
+	} 
+	while (hasAnotherResult);
+
+	//gotta have at least one result
+	poco_assert(nextResult() == true);
+}
+
+QueryResultMysql::~QueryResultMysql() {}
+
+bool QueryResultMysql::fetchRow()
+{
+	//if we're outta results, there's also no more rows
+	if (_currRes < 0 || _currRes >= _results.size())
+		return false;
+
+	//current result set is in range
+	const auto& theRes = _results[_currRes];
+
+	MYSQL_ROW myRow = mysql_fetch_row(theRes.myRes);
+	if (!myRow) //no more rows in this result set
+		return false;
+
+	//we got a row, point the pointers
+	for (size_t i=0; i<_row.size(); i++)
+		_row[i].setValue(myRow[i]);
+
+	return true;
+}
 
 namespace
 {
@@ -54,50 +92,64 @@ namespace
 	}
 }
 
-QueryResultMysql::QueryResultMysql(MYSQL_RES* result, MYSQL_FIELD* fields, UInt64 rowCount, size_t fieldCount) :
-    QueryResultImpl(rowCount, fieldCount), _myRes(result)
+bool QueryResultMysql::nextResult()
 {
-	if (fields != nullptr)
+	//is the currently selected result in bounds ? if so, free it
+	if (_currRes >= 0 && _currRes < _results.size())
+		_results[_currRes].clear();
+	//select next result
+	_currRes++;
+
+	if (_currRes < _results.size())
 	{
-		for (size_t i=0; i<numFields(); i++)
-			_row[i].setType(MySQLTypeToFieldType(fields[i].type));
+		const auto& theRes = _results[_currRes];
+		setNumFields(theRes.numFields);
+		setNumRows(theRes.numRows);
+
+		_row.resize(theRes.numFields);
+		if (_row.size() > 0)
+		{
+			poco_assert(theRes.myRes != nullptr);
+			MYSQL_FIELD* fields = mysql_fetch_fields(theRes.myRes);
+			for (size_t i=0; i<_row.size(); i++)
+			{
+				_row[i].setValue(nullptr);
+				_row[i].setType(MySQLTypeToFieldType(fields[i].type));
+			}
+		}
+
+		return true;
+	}
+	else
+	{
+		_results.clear();
+		_currRes = -1;
+
+		setNumFields(0);
+		setNumRows(0);
+		_row.clear();
+
+		return false;
 	}
 }
 
-QueryResultMysql::~QueryResultMysql()
+QueryFieldNames QueryResultMysql::fetchFieldNames() const
 {
-    finish();
-}
+	//if we got no result, can't fetch field names
+	if (_currRes < 0 || _currRes >= _results.size())
+		return QueryFieldNames();
 
-bool QueryResultMysql::fetchRow()
-{
-    MYSQL_ROW myRow;
+	const auto& theRes = _results[_currRes];
+	QueryFieldNames fieldNames(theRes.numFields);
+	if (fieldNames.size() > 0)
+	{
+		poco_assert(theRes.myRes != nullptr);
+		MYSQL_FIELD* fields = mysql_fetch_fields(theRes.myRes);
+		for (size_t i=0; i<fieldNames.size(); i++)
+			fieldNames[i] = fields[i].name;
+	}
 
-    if (!_myRes)
-        return false;
-
-    myRow = mysql_fetch_row(_myRes);
-    if (!myRow)
-    {
-        finish();
-        return false;
-    }
-
-    for (size_t i=0; i<numFields(); i++)
-        _row[i].setValue(myRow[i]);
-
-    return true;
-}
-
-void QueryResultMysql::finish()
-{
-	_row.clear();
-
-    if (_myRes)
-    {
-        mysql_free_result(_myRes);
-        _myRes = nullptr;
-    }
+	return std::move(fieldNames);
 }
 
 #endif
