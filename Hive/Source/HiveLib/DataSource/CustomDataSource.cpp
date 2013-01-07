@@ -36,8 +36,12 @@ bool CustomDataSource::TableInfo::operator==( const TableInfo& rhs ) const
 	return boost::iequals(this->table,rhs.table);
 }
 
-CustomDataSource::TableInfo CustomDataSource::GetTableInfo( std::string inputName )
+CustomDataSource::TableInfo::TableInfo( std::string inputName )
 {
+	boost::trim(inputName);
+	if (inputName.length() < 1)
+		throw CustomDataSource::InvalidTableException(inputName,"TableInfo empty");
+
 	string dbName;
 	string tableName;
 	if (inputName.length() > 0)
@@ -73,51 +77,20 @@ CustomDataSource::TableInfo CustomDataSource::GetTableInfo( std::string inputNam
 		}
 	}
 
-	return TableInfo(dbType,tableName);
+	if (dbType >= DB_UNK)
+		throw CustomDataSource::InvalidTableException(inputName,"TableInfo has unknown Database");
+
+	if (tableName.length() < 1)
+		throw CustomDataSource::InvalidTableException(inputName,"TableInfo has empty Table Name");
+
+	this->dbase = dbType;
+	this->table = tableName;
 }
 
-CustomDataSource::CustomDataSource( Poco::Logger& logger, shared_ptr<Database> charDb, shared_ptr<Database> objDb, 
-								   const Poco::Util::AbstractConfiguration* conf ) : DataSource(logger)
+CustomDataSource::CustomDataSource( Poco::Logger& logger, shared_ptr<Database> charDb, shared_ptr<Database> objDb ) : DataSource(logger)
 {
 	_dbs[DB_CHAR] = charDb;
 	_dbs[DB_OBJ] = objDb;
-
-	if (conf != nullptr)
-	{
-		string allowedStr = conf->getString("AllowedTables","");
-		vector<string> alloweds;
-		boost::split(alloweds,allowedStr,boost::is_any_of(","));
-		for (auto it=alloweds.begin();it!=alloweds.end();++it)
-		{
-			boost::trim(*it);
-			if (it->length() > 0)
-			{
-				auto tblInfo = GetTableInfo(*it);
-				if (tblInfo.dbase >= DB_UNK)
-				{
-					_logger.warning("AllowedTables element " + 
-						boost::lexical_cast<string>(it-alloweds.begin()) + 
-						" (" + *it + ") has unknown Database");
-					continue;
-				}
-				if (tblInfo.table.length() < 1)
-				{
-					_logger.warning("AllowedTables element " + 
-						boost::lexical_cast<string>(it-alloweds.begin()) + 
-						" (" + *it + ") has no TableName");
-					continue;
-				}
-				if (std::find(_allowed.begin(),_allowed.end(),tblInfo) != _allowed.end())
-				{
-					_logger.warning("AllowedTables element " + 
-						boost::lexical_cast<string>(it-alloweds.begin()) + 
-						" (" + *it + ") is a duplicate");
-					continue;
-				}
-				_allowed.push_back(std::move(tblInfo));
-			}
-		}
-	}
 
 	//use a strong crypto random source to seed the PRNG
 	{
@@ -126,6 +99,46 @@ CustomDataSource::CustomDataSource( Poco::Logger& logger, shared_ptr<Database> c
 		poco_assert(rngSeed != 0);
 		_rng.seed(rngSeed);
 	}
+}
+
+void CustomDataSource::VerifyTable( string whichOne )
+{
+	TableInfo tblInfo(whichOne);
+	poco_assert(tblInfo.isValid());
+}
+
+bool CustomDataSource::allowTable( string whichOne )
+{
+	TableInfo tblInfo(whichOne);
+
+	if (std::find(_allowed.begin(),_allowed.end(),tblInfo) != _allowed.end())
+		return false;
+
+	_allowed.push_back(std::move(tblInfo));
+	return true;
+}
+
+bool CustomDataSource::removeAllowedTable( string whichOne )
+{
+	TableInfo tblInfo(whichOne);
+
+	auto it = std::find(_allowed.begin(),_allowed.end(),tblInfo);
+	if (it != _allowed.end())
+	{
+		_allowed.erase(it);
+		return true;
+	}
+
+	return false;
+}
+
+vector<string> CustomDataSource::getAllowedTables() const
+{
+	vector<string> retVal(_allowed.size());
+	for (size_t i=0; i<retVal.size(); i++)
+		retVal[i] = _allowed[i].toString();
+
+	return retVal;
 }
 
 CustomDataSource::~CustomDataSource() {}
@@ -297,9 +310,7 @@ UInt32 CustomDataSource::getRandomNumber() const
 UInt32 CustomDataSource::dataRequest( const string& tableName, const vector<string>& columnNames, 
 									 const vector<WhereElem>& where, Int64 limitCount, Int64 limitOffset, bool async )
 {
-	TableInfo tblInfo = GetTableInfo(tableName);
-	if (!tblInfo.isValid())
-		throw InvalidTableException(tableName);
+	TableInfo tblInfo(tableName);
 
 	if (std::find(_allowed.begin(),_allowed.end(),tblInfo) == _allowed.end())
 		throw DisallowedTableException(tblInfo.toString());

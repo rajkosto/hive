@@ -4,7 +4,7 @@ You must have a copy of Visual Studio 2010 with SP1 installed.
 
 Also required is the boost library, both includes and compiled libraries
 If you don't have it, get boost from http://www.boost.org/
-Compilation instructions (how to use bjam for your compiler) can be found at http://www.boost.org/doc/libs/1_51_0/more/getting_started/windows.html
+Compilation instructions (how to use bjam for your compiler) can be found at http://www.boost.org/doc/libs/1_52_0/more/getting_started/windows.html
 Once compiled, make sure to add the include and lib folders to your VC++ directories inside Visual Studio.
 
 The other 2 dependencies are project-local.

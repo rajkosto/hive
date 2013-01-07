@@ -25,11 +25,11 @@
 
 namespace
 {
-	void RedirectIOToConsole()
+	bool RedirectIOToConsole()
 	{
 		//allocate a console for this app
 		if (!AllocConsole())
-			return;
+			return false;
 
 		//set the screen buffer to be big enough to let us scroll text
 		{
@@ -71,12 +71,14 @@ namespace
 
 		//make cout, wcout, cin, wcin, wcerr, cerr, wclog and clog point to console as well
 		std::ios::sync_with_stdio();
+
+		return true;
 	}
 };
 
-HiveConsoleChannel::HiveConsoleChannel(std::string windowTitle)
+HiveConsoleChannel::HiveConsoleChannel(std::string windowTitle) : _consoleCreated(false)
 {
-	RedirectIOToConsole();
+	_consoleCreated = RedirectIOToConsole();
 	if (windowTitle.length() > 0)
 	{
 		std::wstring wideTitle;
@@ -89,6 +91,11 @@ HiveConsoleChannel::HiveConsoleChannel(std::string windowTitle)
 
 HiveConsoleChannel::~HiveConsoleChannel()
 {
+	if (_consoleCreated)
+	{
+		FreeConsole();
+		_consoleCreated = false;
+	}
 }
 
 void HiveConsoleChannel::log(const Poco::Message& msg)

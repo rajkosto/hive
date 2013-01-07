@@ -117,13 +117,14 @@ int HiveExtApp::main( const std::vector<std::string>& args )
 HiveExtApp::HiveExtApp(string suffixDir) : AppServer("HiveExt",suffixDir), _serverId(-1)
 {
 	//custom data retrieval
+	handlers[500] = boost::bind(&HiveExtApp::changeTableAccess,this,_1);	//mechanism for setting up custom table permissions
 	handlers[501] = boost::bind(&HiveExtApp::dataRequest,this,_1,false);	//sync load init and wait
 	handlers[502] = boost::bind(&HiveExtApp::dataRequest,this,_1,true);		//async load init
 	handlers[503] = boost::bind(&HiveExtApp::dataStatus,this,_1);			//retrieve request status and info
 	handlers[504] = boost::bind(&HiveExtApp::dataFetchRow,this,_1);			//fetch row from completed query
 	handlers[505] = boost::bind(&HiveExtApp::dataClose,this,_1);			//destroy any trace of request
 	//server and object stuff
-	handlers[302] = boost::bind(&HiveExtApp::streamObjects,this,_1);
+	handlers[302] = boost::bind(&HiveExtApp::streamObjects,this,_1);		//Returns object count, superKey first time, rows after that
 	handlers[303] = boost::bind(&HiveExtApp::objectInventory,this,_1,false);
 	handlers[304] = boost::bind(&HiveExtApp::objectDelete,this,_1,false);
 	handlers[305] = boost::bind(&HiveExtApp::vehicleMoved,this,_1);
@@ -132,6 +133,7 @@ HiveExtApp::HiveExtApp(string suffixDir) : AppServer("HiveExt",suffixDir), _serv
 	handlers[308] = boost::bind(&HiveExtApp::objectPublish,this,_1);
 	handlers[309] = boost::bind(&HiveExtApp::objectInventory,this,_1,true);
 	handlers[310] = boost::bind(&HiveExtApp::objectDelete,this,_1,true);
+	handlers[399] = boost::bind(&HiveExtApp::serverShutdown,this,_1);		//Shut down the hiveExt instance
 	//player/character loads
 	handlers[101] = boost::bind(&HiveExtApp::loadPlayer,this,_1);
 	handlers[102] = boost::bind(&HiveExtApp::loadCharacterDetails,this,_1);
@@ -188,9 +190,21 @@ void HiveExtApp::callExtension( const char* function, char* output, size_t outpu
 	logger().information("Method: " + lexical_cast<string>(funcNum) + " Params: " + lexical_cast<string>(params));
 	HandlerFunc handler = handlers[funcNum];
 	Sqf::Value res;
+	boost::optional<ServerShutdownException> shutdownExc;
 	try
 	{
 		res = handler(params);
+	}
+	catch (const ServerShutdownException& e)
+	{
+		if (!e.keyMatches(_initKey))
+		{
+			logger().error("Actually not shutting down");
+			return;
+		}
+
+		shutdownExc = e;
+		res = e.getReturnValue();
 	}
 	catch (...)
 	{
@@ -199,26 +213,51 @@ void HiveExtApp::callExtension( const char* function, char* output, size_t outpu
 	}		
 
 	string serializedRes = lexical_cast<string>(res);
+	logger().information("Result: " + serializedRes);
+
 	if (serializedRes.length() >= outputSize)
-	{
 		logger().error("Output size too big ("+lexical_cast<string>(serializedRes.length())+") for request : " + string(function));
-		return;
+	else
+		strncpy_s(output,outputSize,serializedRes.c_str(),outputSize-1);
+
+	if (shutdownExc.is_initialized())
+		throw *shutdownExc;
+}
+
+namespace
+{
+	Sqf::Parameters ReturnStatus(std::string status, Sqf::Parameters rest)
+	{
+		Sqf::Parameters outRet;
+		outRet.push_back(std::move(status));
+		for (size_t i=0; i<rest.size(); i++)
+			outRet.push_back(std::move(rest[i]));
+
+		return outRet;
+	}
+	template<typename T>
+	Sqf::Parameters ReturnStatus(std::string status, T other)
+	{
+		Sqf::Parameters rest; rest.push_back(std::move(other));
+		return ReturnStatus(std::move(status),std::move(rest));
+	}
+	Sqf::Parameters ReturnStatus(std::string status)
+	{
+		return ReturnStatus(std::move(status),Sqf::Parameters());
 	}
 
-	logger().information("Result: " + serializedRes);		
-	strncpy_s(output,outputSize,serializedRes.c_str(),outputSize-1);
-}
+	Sqf::Parameters ReturnBooleanStatus(bool isGood, string errorMsg = "")
+	{
+		string retStatus = "PASS";
+		if (!isGood)
+			retStatus = "ERROR";
 
-Sqf::Parameters HiveExtApp::booleanReturn( bool isGood )
-{
-	Sqf::Parameters retVal;
-	string retStatus = "PASS";
-	if (!isGood)
-		retStatus = "ERROR";
-
-	retVal.push_back(retStatus);
-	return retVal;
-}
+		if (errorMsg.length() < 1)
+			return ReturnStatus(std::move(retStatus));
+		else
+			return ReturnStatus(std::move(retStatus),std::move(errorMsg));
+	}
+};
 
 Sqf::Value HiveExtApp::getDateTime( Sqf::Parameters params )
 {
@@ -239,21 +278,47 @@ Sqf::Value HiveExtApp::getDateTime( Sqf::Parameters params )
 	return retVal;
 }
 
+#include <Poco/HexBinaryEncoder.h>
+#include <Poco/HexBinaryDecoder.h>
+
 #include "DataSource/ObjDataSource.h"
+#include <Poco/RandomStream.h>
 
 Sqf::Value HiveExtApp::streamObjects( Sqf::Parameters params )
 {
 	if (_srvObjects.empty())
 	{
-		int serverId = boost::get<int>(params.at(0));
-		setServerId(serverId);
+		if (_initKey.length() < 1)
+		{
+			int serverId = boost::get<int>(params.at(0));
+			setServerId(serverId);
 
-		_objData->populateObjects(getServerId(), _srvObjects);
+			_objData->populateObjects(getServerId(), _srvObjects);
+			//set up initKey
+			{
+				boost::array<UInt8,16> keyData;
+				Poco::RandomInputStream().read((char*)keyData.c_array(),keyData.size());
+				std::ostringstream ostr;
+				Poco::HexBinaryEncoder enc(ostr);
+				enc.rdbuf()->setLineLength(0);
+				enc.write((const char*)keyData.data(),keyData.size());
+				enc.close();
+				_initKey = ostr.str();
+			}
 
-		Sqf::Parameters retVal;
-		retVal.push_back(string("ObjectStreamStart"));
-		retVal.push_back(static_cast<int>(_srvObjects.size()));
-		return retVal;
+			Sqf::Parameters retVal;
+			retVal.push_back(string("ObjectStreamStart"));
+			retVal.push_back(static_cast<int>(_srvObjects.size()));
+			retVal.push_back(_initKey);
+			return retVal;
+		}
+		else
+		{
+			Sqf::Parameters retVal;
+			retVal.push_back(string("ERROR"));
+			retVal.push_back(string("Instance already initialized"));
+			return retVal;
+		}
 	}
 	else
 	{
@@ -270,9 +335,9 @@ Sqf::Value HiveExtApp::objectInventory( Sqf::Parameters params, bool byUID /*= f
 	Sqf::Value inventory = boost::get<Sqf::Parameters>(params.at(1));
 
 	if (objectIdent != 0) //all the vehicles have objectUID = 0, so it would be bad to update those
-		return booleanReturn(_objData->updateObjectInventory(getServerId(),objectIdent,byUID,inventory));
+		return ReturnBooleanStatus(_objData->updateObjectInventory(getServerId(),objectIdent,byUID,inventory));
 
-	return booleanReturn(true);
+	return ReturnBooleanStatus(true);
 }
 
 Sqf::Value HiveExtApp::objectDelete( Sqf::Parameters params, bool byUID /*= false*/ )
@@ -280,9 +345,9 @@ Sqf::Value HiveExtApp::objectDelete( Sqf::Parameters params, bool byUID /*= fals
 	Int64 objectIdent = Sqf::GetBigInt(params.at(0));
 
 	if (objectIdent != 0) //all the vehicles have objectUID = 0, so it would be bad to delete those
-		return booleanReturn(_objData->deleteObject(getServerId(),objectIdent,byUID));
+		return ReturnBooleanStatus(_objData->deleteObject(getServerId(),objectIdent,byUID));
 
-	return booleanReturn(true);
+	return ReturnBooleanStatus(true);
 }
 
 Sqf::Value HiveExtApp::vehicleMoved( Sqf::Parameters params )
@@ -292,9 +357,9 @@ Sqf::Value HiveExtApp::vehicleMoved( Sqf::Parameters params )
 	double fuel = Sqf::GetDouble(params.at(2));
 
 	if (objectIdent > 0) //sometimes script sends this with object id 0, which is bad
-		return booleanReturn(_objData->updateVehicleMovement(getServerId(),objectIdent,worldspace,fuel));
+		return ReturnBooleanStatus(_objData->updateVehicleMovement(getServerId(),objectIdent,worldspace,fuel));
 
-	return booleanReturn(true);
+	return ReturnBooleanStatus(true);
 }
 
 Sqf::Value HiveExtApp::vehicleDamaged( Sqf::Parameters params )
@@ -304,9 +369,9 @@ Sqf::Value HiveExtApp::vehicleDamaged( Sqf::Parameters params )
 	double damage = Sqf::GetDouble(params.at(2));
 
 	if (objectIdent > 0) //sometimes script sends this with object id 0, which is bad
-		return booleanReturn(_objData->updateVehicleStatus(getServerId(),objectIdent,hitPoints,damage));
+		return ReturnBooleanStatus(_objData->updateVehicleStatus(getServerId(),objectIdent,hitPoints,damage));
 
-	return booleanReturn(true);
+	return ReturnBooleanStatus(true);
 }
 
 Sqf::Value HiveExtApp::objectPublish( Sqf::Parameters params )
@@ -320,7 +385,7 @@ Sqf::Value HiveExtApp::objectPublish( Sqf::Parameters params )
 	double fuel = Sqf::GetDouble(params.at(7));
 	Int64 uniqueId = Sqf::GetBigInt(params.at(8));
 
-	return booleanReturn(_objData->createObject(getServerId(),className,damage,characterId,worldSpace,inventory,hitPoints,fuel,uniqueId));
+	return ReturnBooleanStatus(_objData->createObject(getServerId(),className,damage,characterId,worldSpace,inventory,hitPoints,fuel,uniqueId));
 }
 
 #include "DataSource/CharDataSource.h"
@@ -346,7 +411,7 @@ Sqf::Value HiveExtApp::recordCharacterLogin( Sqf::Parameters params )
 	int characterId = Sqf::GetIntAny(params.at(1));
 	int action = Sqf::GetIntAny(params.at(2));
 
-	return booleanReturn(_charData->recordLogin(playerId,characterId,action));
+	return ReturnBooleanStatus(_charData->recordLogin(playerId,characterId,action));
 }
 
 Sqf::Value HiveExtApp::playerUpdate( Sqf::Parameters params )
@@ -466,9 +531,9 @@ Sqf::Value HiveExtApp::playerUpdate( Sqf::Parameters params )
 	}
 
 	if (fields.size() > 0)
-		return booleanReturn(_charData->updateCharacter(characterId,fields));
+		return ReturnBooleanStatus(_charData->updateCharacter(characterId,fields));
 
-	return booleanReturn(true);
+	return ReturnBooleanStatus(true);
 }
 
 Sqf::Value HiveExtApp::playerInit( Sqf::Parameters params )
@@ -477,7 +542,7 @@ Sqf::Value HiveExtApp::playerInit( Sqf::Parameters params )
 	Sqf::Value inventory = boost::get<Sqf::Parameters>(params.at(1));
 	Sqf::Value backpack = boost::get<Sqf::Parameters>(params.at(2));
 
-	return booleanReturn(_charData->initCharacter(characterId,inventory,backpack));
+	return ReturnBooleanStatus(_charData->initCharacter(characterId,inventory,backpack));
 }
 
 Sqf::Value HiveExtApp::playerDeath( Sqf::Parameters params )
@@ -485,11 +550,8 @@ Sqf::Value HiveExtApp::playerDeath( Sqf::Parameters params )
 	int characterId = Sqf::GetIntAny(params.at(0));
 	int duration = static_cast<int>(Sqf::GetDouble(params.at(1)));
 	
-	return booleanReturn(_charData->killCharacter(characterId,duration));
+	return ReturnBooleanStatus(_charData->killCharacter(characterId,duration));
 }
-
-#include <Poco/HexBinaryEncoder.h>
-#include <Poco/HexBinaryDecoder.h>
 
 namespace
 {
@@ -576,6 +638,29 @@ namespace
 
 		return token;
 	}
+
+	UInt32 FetchToken(const Sqf::Parameters& params)
+	{
+		try
+		{
+			return HexToToken(Sqf::GetStringAny(params.at(0)));
+		}
+		catch(const boost::bad_lexical_cast&)
+		{
+			//invalid characters in string
+			return 0;
+		}
+		catch(const boost::bad_get&)
+		{
+			//not a string
+			return 0;
+		}
+		catch(const std::out_of_range&)
+		{
+			//doesn't even exist
+			return 0;
+		}
+	}
 };
 
 //CHILD:501:DbName.TableName:["ColumnName1","ColumnName2"]:["NOT",["ColumnNameX","<","Constant"]],"AND",["SomeOtherColumn","RLIKE","[0-9]"]]:[0,50]:
@@ -605,7 +690,7 @@ namespace
 //this corresponds to the SQL versions of LIMIT COUNT or LIMIT OFFSET,COUNT
 //this parameter is optional, you can omit it by just not having that :[*] at the end
 
-//The return value is either ["OK",UNIQID] where UNIQID represents the string token that you can later use to retrieve results
+//The return value is either ["PASS",UNIQID] where UNIQID represents the string token that you can later use to retrieve results
 //or ["ERROR",ERRORDESCR] where ERRORDESCR is a description of the error that happened
 Sqf::Value HiveExtApp::dataRequest( Sqf::Parameters params, bool async )
 {
@@ -692,7 +777,7 @@ Sqf::Value HiveExtApp::dataRequest( Sqf::Parameters params, bool async )
 	{
 		UInt32 token = _customData->dataRequest(tableName,fields,where,limitCount,limitOffset,async);
 		vector<Sqf::Value> goodRtn;
-		goodRtn.push_back(string("OK"));
+		goodRtn.push_back(string("PASS"));
 		goodRtn.push_back(TokenToHex(token));
 		return goodRtn;
 	}
@@ -704,26 +789,6 @@ Sqf::Value HiveExtApp::dataRequest( Sqf::Parameters params, bool async )
 
 namespace
 {
-	Sqf::Value ReturnStatus(std::string status, Sqf::Parameters rest)
-	{
-		Sqf::Parameters outRet;
-		outRet.push_back(std::move(status));
-		for (size_t i=0; i<rest.size(); i++)
-			outRet.push_back(std::move(rest[i]));
-
-		return Sqf::Value(std::move(outRet));
-	}
-	template<typename T>
-	Sqf::Value ReturnStatus(std::string status, T other)
-	{
-		Sqf::Parameters rest; rest.push_back(std::move(other));
-		return ReturnStatus(std::move(status),std::move(rest));
-	}
-	Sqf::Value ReturnStatus(std::string status)
-	{
-		return ReturnStatus(std::move(status),Sqf::Parameters());
-	}
-
 	Sqf::Value ReturnBadToken(bool reallyBad = true)
 	{
 		return ReturnStatus("UNKID",reallyBad);
@@ -731,7 +796,7 @@ namespace
 
 	Sqf::Value ReturnError(std::string errMsg)
 	{
-		return ReturnStatus("ERROR",std::move(errMsg));
+		return ReturnBooleanStatus(false,std::move(errMsg));
 	}
 
 	Sqf::Value HandleRequestState(CustomDataSource::RequestState state)
@@ -745,40 +810,16 @@ namespace
 		else
 			return ReturnError("Unknown status");
 	}
-
-	UInt32 FetchToken(const Sqf::Parameters& params)
-	{
-		try
-		{
-			return HexToToken(boost::get<string>(params.at(0)));
-		}
-		catch(const boost::bad_lexical_cast&)
-		{
-			//invalid characters in string
-			return 0;
-		}
-		catch(const boost::bad_get&)
-		{
-			//not a string
-			return 0;
-		}
-		catch(const std::out_of_range&)
-		{
-			//doesn't even exist
-			return 0;
-		}
-	}
-
 };
 
 //CHILD:503:UNIQID:
 //UNIQID is the string you received with a call to 501/502
 //the return value is either
-//["OK",numRows,numFields,[field1,field2]]
+//["PASS",numRows,numFields,[field1,field2]]
 //["WAIT"]
 //["ERROR",ERRORDESCR]
 //["UNKID",isInvalidId]
-//"OK" return code gives you information about the query, 
+//"PASS" return code gives you information about the query, 
 //like total number of rows, number of fields, and the field names in an array
 //"WAIT" = the asynchronous operation didn't complete yet
 //"ERROR" = the asynchronous operation failed, error info is in ERRORDESCR
@@ -810,7 +851,7 @@ Sqf::Value HiveExtApp::dataStatus( Sqf::Parameters params )
 				retVal.push_back(std::move(realFields));
 			}
 			
-			return ReturnStatus("OK",std::move(retVal));
+			return ReturnStatus("PASS",std::move(retVal));
 		}
 		return HandleRequestState(reqStatus);
 	}
@@ -820,9 +861,9 @@ Sqf::Value HiveExtApp::dataStatus( Sqf::Parameters params )
 	}
 }
 
-//CHILD:504:UNIQID
-//see documentation for 503 for everything except when the return code is OK or NOMORE:
-//["OK",["fieldVal1","fieldVal2",false,"fieldVal3"]]
+//CHILD:504:UNIQID:
+//see documentation for 503 for everything except when the return code is PASS or NOMORE:
+//["PASS",["fieldVal1","fieldVal2",false,"fieldVal3"]]
 //the second element of the return array is the array of field values
 //each field value will just be a string, EXCEPT if the field IS NULL
 //then the field value will be a boolean false
@@ -855,7 +896,7 @@ Sqf::Value HiveExtApp::dataFetchRow( Sqf::Parameters params )
 				retVal.push_back(std::move(sqfVals));
 			}
 
-			return ReturnStatus("OK",std::move(retVal));
+			return ReturnStatus("PASS",std::move(retVal));
 		}
 		return HandleRequestState(reqStatus);
 	}
@@ -865,9 +906,9 @@ Sqf::Value HiveExtApp::dataFetchRow( Sqf::Parameters params )
 	}
 }
 
-//CHILD:504:UNIQID
+//CHILD:504:UNIQID:
 //closes a retrieved request or cancels a pending one
-//returns OK if it was closed/cancelled
+//returns PASS if it was closed/cancelled
 //returns UNKID if the UNIQID was already closed/bad
 Sqf::Value HiveExtApp::dataClose( Sqf::Parameters params )
 {
@@ -877,7 +918,162 @@ Sqf::Value HiveExtApp::dataClose( Sqf::Parameters params )
 
 	bool closed = _customData->closeRequest(token);
 	if (closed)
-		return ReturnStatus("OK");
+		return ReturnBooleanStatus(true);
 	else
 		return ReturnBadToken(false);
+}
+
+namespace
+{
+	struct TableVisitor : public boost::static_visitor<void>
+	{
+		TableVisitor() : lastIdx(-1) {}
+
+		void operator()(std::string tblName) 
+		{
+			boost::trim(tblName);
+			if (tblName.length() > 0)
+				collection.push_back(std::move(tblName));
+		}
+		void operator()(const Sqf::Parameters& tblNames)
+		{
+			for (size_t i=0; i<tblNames.size(); i++)
+			{
+				lastIdx = i;
+				collection.push_back(boost::get<string>(tblNames[i]));
+			}
+		}
+		template<typename T>
+		void operator()(T) const
+		{
+			throw boost::bad_get();
+		}
+
+		int lastIdx;
+		vector<string> collection;
+	};
+};
+
+//CHILD:500:SUPERKEY:ALLOWTABLES:REMOVEALLOWTABLES:
+//ALLOWTABLES and REMOVEALLOWTABLES can either be a string or array of strings
+//each represents a table in format DbType.TableName to be allowed/removed from allow list
+//having them both blank or missing will give you a result of all the currently allowed tables
+//in format ["PASS",["Character.Table1","Object.Table2"]]
+//an invalid string for any of the table names would make the whole method fail with
+//["ERROR",ERRORDESCR]
+//otherwise, the return format is
+//["PASS",DUPLICATEALLOWED,REMOVEMISSING]
+//where DUPLICATEALLOWED is an array of tables which you have now allowed, but were allowed anyway
+//and REMOVEMISSING is an array of tables which you wanted to remove from the allow list, but they weren't there
+Sqf::Value HiveExtApp::changeTableAccess( Sqf::Parameters params )
+{
+	//check key
+	{
+		string theirKey = boost::get<string>(params.at(0));
+		if (!_initKey.length() || _initKey != theirKey)
+			return ReturnBooleanStatus(false,"Invalid key");
+	}
+
+	TableVisitor visitor;
+	vector<string> allowTables;
+	vector<string> removeTables;
+	const char* currThing;
+	try
+	{
+		if (params.size() >= 2)
+		{
+			currThing = "ALLOWTABLES";
+			visitor = TableVisitor();
+			boost::apply_visitor(visitor,params[1]);
+			allowTables = visitor.collection;
+		}
+		if (params.size() >= 3)
+		{
+			currThing = "REMOVEALLOWTABLES";
+			visitor = TableVisitor();
+			boost::apply_visitor(visitor,params[2]);
+			removeTables = visitor.collection;
+		}
+	}
+	catch(const boost::bad_get&)
+	{
+		string errorMsg = currThing;
+		if (visitor.lastIdx >= 0)
+			errorMsg += "[" + boost::lexical_cast<string>(visitor.lastIdx)+"]";
+		
+		errorMsg += " not a string";
+
+		return ReturnBooleanStatus(false,errorMsg);
+	}
+
+	//if neither specified, return current tables
+	if (allowTables.size() < 1 && removeTables.size() < 1)
+	{
+		Sqf::Value retVal;
+		{
+			vector<string> ourTables = _customData->getAllowedTables();
+			Sqf::Parameters tablesSqf(ourTables.size());
+			for (size_t i=0; i<tablesSqf.size(); i++)
+				tablesSqf[i] = std::move(ourTables[i]);
+
+			retVal = std::move(tablesSqf);
+		}
+		return ReturnStatus("PASS",retVal);
+	}
+
+	//otherwise check input table names
+	{
+		size_t i;
+		try
+		{
+			currThing = "ALLOWTABLES";
+			for (i=0; i<allowTables.size(); i++)
+				CustomDataSource::VerifyTable(allowTables[i]);
+			currThing = "REMOVEALLOWTABLES";
+			for (i=0; i<removeTables.size(); i++)
+				CustomDataSource::VerifyTable(removeTables[i]);
+		}
+		catch(const CustomDataSource::DataException& e)
+		{
+			string errorMsg = currThing;
+			errorMsg += "[" + boost::lexical_cast<string>(i) + "]: " + e.toString();
+
+			return ReturnBooleanStatus(false,errorMsg);
+		}
+	}
+
+	//then apply the changes
+	Sqf::Parameters failedAdd, failedRem;
+	for (auto it=allowTables.begin(); it!=allowTables.end(); ++it)
+	{
+		if (!_customData->allowTable(*it))
+			failedAdd.push_back(*it);
+	}
+	for (auto it=removeTables.begin(); it!=removeTables.end(); ++it)
+	{
+		if (!_customData->removeAllowedTable(*it))
+			failedRem.push_back(*it);
+	}
+
+	Sqf::Parameters retVal;
+	retVal.push_back(failedAdd);
+	retVal.push_back(failedRem);
+
+	return ReturnStatus("PASS",retVal);
+}
+
+//CHILD:399:SUPERKEY:
+//if the SUPERKEY matches, HiveExt instance will shut down
+//and ["PASS"] will be returned
+//otherwise, ["ERROR"] will be returned
+Sqf::Value HiveExtApp::serverShutdown( Sqf::Parameters params )
+{
+	string theirKey = boost::get<string>(params.at(0));
+	if ((_initKey.length() > 0) && (theirKey == _initKey))
+	{
+		logger().information("Shutting down HiveExt instance");
+		throw ServerShutdownException(theirKey,ReturnBooleanStatus(true));
+	}
+
+	return ReturnBooleanStatus(false);
 }

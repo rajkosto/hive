@@ -115,7 +115,11 @@ void SqlObjDataSource::populateObjects( int serverId, ServerObjectsQueue& queue 
 	}
 	
 	auto worldObjsRes = getDB()->queryParams("SELECT `ObjectID`, `Classname`, `CharacterID`, `Worldspace`, `Inventory`, `Hitpoints`, `Fuel`, `Damage` FROM `%s` WHERE `Instance`=%d AND `Classname` IS NOT NULL", _objTableName.c_str(), serverId);
-
+	if (!worldObjsRes)
+	{
+		_logger.error("Failed to fetch objects from database");
+		return;
+	}
 	while (worldObjsRes->fetchRow())
 	{
 		auto row = worldObjsRes->fields();
@@ -152,7 +156,7 @@ void SqlObjDataSource::populateObjects( int serverId, ServerObjectsQueue& queue 
 			objParams.push_back(row[6].getDouble());
 			objParams.push_back(row[7].getDouble());
 		}
-		catch (bad_lexical_cast)
+		catch (const bad_lexical_cast&)
 		{
 			_logger.error("Skipping ObjectID " + lexical_cast<string>(objectId) + " load because of invalid data in db");
 			continue;

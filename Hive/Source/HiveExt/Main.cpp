@@ -48,17 +48,29 @@ int main()
 	DllMain(NULL,DLL_PROCESS_ATTACH,NULL);
 	char testOutBuf[4096];
 	RVExtension(testOutBuf,sizeof(testOutBuf),"CHILD:307:");
-//#define CUSTOMDATA_TESTS
+#define CUSTOMDATA_TESTS
 #ifdef CUSTOMDATA_TESTS
+	RVExtension(testOutBuf,sizeof(testOutBuf),"CHILD:302:1337:");
+	Sqf::Parameters objStreamStart = boost::get<Sqf::Parameters>(lexical_cast<Sqf::Value>(string(testOutBuf)));
+	poco_assert(boost::get<string>(objStreamStart.at(0)) == "ObjectStreamStart");
+	string magicKey = boost::get<string>(objStreamStart.at(2));
+	for (size_t i=0; i<lexical_cast<int>(objStreamStart.at(1)); i++)
+	{
+		RVExtension(testOutBuf,sizeof(testOutBuf),"CHILD:302:1337:");
+		Sqf::Parameters objInfo = boost::get<Sqf::Parameters>(lexical_cast<Sqf::Value>(string(testOutBuf)));
+		string objDump = lexical_cast<string>(Sqf::Value(objInfo));
+	}
+	RVExtension(testOutBuf,sizeof(testOutBuf),string("CHILD:500:"+magicKey+":Character.characters:").c_str());
+
 	vector<string> dbTests;
 	dbTests.push_back("CHILD:502:Character.characters:[\"charId\",\"status\",\"handle\"]:[\"( (\",[\"charId\",\"!=\",\"7\"],\"))\"]:[0,10]:");
 	dbTests.push_back("CHILD:501:Character.characters:[\"charId\",\"status\",\"handle\"]:[]:");
 	dbTests.push_back("CHILD:503:");
 	dbTests.push_back("CHILD:504:353253:");
-	dbTests.push_back("CHILD:505:\"sdmf\":");
-	dbTests.push_back("CHILD:503:\"132\":");
-	dbTests.push_back("CHILD:504:\"aaaaaaaa\":");
-	dbTests.push_back("CHILD:505:\"353253\":");
+	dbTests.push_back("CHILD:505:sdmf:");
+	dbTests.push_back("CHILD:503:132:");
+	dbTests.push_back("CHILD:504:aaaaaaaa:");
+	dbTests.push_back("CHILD:505:353253:");
 	for (auto it=dbTests.begin(); it!=dbTests.end(); ++it)
 	{
 		RVExtension(testOutBuf,sizeof(testOutBuf),it->c_str());
@@ -66,7 +78,7 @@ int main()
 		{
 			auto firstResponse = boost::get<Sqf::Parameters>(lexical_cast<Sqf::Value>(string(testOutBuf)));
 			string firstMsg = boost::get<string>(firstResponse.at(0));
-			if (firstMsg == "OK")
+			if (firstMsg == "PASS")
 				token = boost::get<string>(firstResponse.at(1));
 			else
 				continue;
@@ -75,7 +87,7 @@ int main()
 		int numRows = 0;
 		for (;;)
 		{
-			string reqStr = "CHILD:503:\"" + token + "\":";
+			string reqStr = "CHILD:503:" + token + ":";
 			RVExtension(testOutBuf,sizeof(testOutBuf),reqStr.c_str());
 			auto detailsResp = boost::get<Sqf::Parameters>(lexical_cast<Sqf::Value>(string(testOutBuf)));
 			string detailsMsg = boost::get<string>(detailsResp.at(0));
@@ -86,7 +98,7 @@ int main()
 				continue;
 			}
 
-			if (detailsMsg != "OK")
+			if (detailsMsg != "PASS")
 				break;
 			else
 			{
@@ -97,38 +109,30 @@ int main()
 		
 		for (int i=0; i< numRows+2; i++)
 		{
-			string reqStr = "CHILD:504:\"" + token + "\":";
+			string reqStr = "CHILD:504:" + token + ":";
 			RVExtension(testOutBuf,sizeof(testOutBuf),reqStr.c_str());
 
 			auto rowResp = boost::get<Sqf::Parameters>(lexical_cast<Sqf::Value>(string(testOutBuf)));
 			string rowMsg = boost::get<string>(rowResp.at(0));
 
-			if (rowMsg != "OK")
+			if (rowMsg != "PASS")
 			{
 				if (rowMsg != "NOMORE")
 					break;
 			}
 		}
 
-		string reqStr = "CHILD:505:\"" + token + "\":";
+		string reqStr = "CHILD:505:" + token + ":";
 		RVExtension(testOutBuf,sizeof(testOutBuf),reqStr.c_str());
 		auto closeResp = boost::get<Sqf::Parameters>(lexical_cast<Sqf::Value>(string(testOutBuf)));
 		string closeMsg = boost::get<string>(closeResp.at(0));
 
-		if (closeMsg != "OK")
+		if (closeMsg != "PASS")
 			continue;
 	}
 	
 #else
 	RVExtension(testOutBuf,sizeof(testOutBuf),"CHILD:302:1337:");
-	Sqf::Parameters objStreamStart = boost::get<Sqf::Parameters>(lexical_cast<Sqf::Value>(string(testOutBuf)));
-	poco_assert(boost::get<string>(objStreamStart[0]) == "ObjectStreamStart");
-	for (size_t i=0; i<lexical_cast<int>(objStreamStart[1]); i++)
-	{
-		RVExtension(testOutBuf,sizeof(testOutBuf),"CHILD:302:1337:");
-		Sqf::Parameters objInfo = boost::get<Sqf::Parameters>(lexical_cast<Sqf::Value>(string(testOutBuf)));
-		string objDump = lexical_cast<string>(Sqf::Value(objInfo));
-	}
 	RVExtension(testOutBuf,sizeof(testOutBuf),"CHILD:201:12662:[]:[]:[]:[false,false,false,false,false,false,true,10130.1,any,[0.837194,0],0,[0,0]]:false:false:0:0:0:0:[]:0:0:Survivor3_DZ:0:");
 	RVExtension(testOutBuf,sizeof(testOutBuf),"CHILD:201:5700692:[80,[2588.59,10073.7,0.001]]:");
 	RVExtension(testOutBuf,sizeof(testOutBuf),"CHILD:308:1311:Wire_cat1:0:6255222:[329.449,[10554.4,3054.12,0]]:[]:[]:0:1.055e14:");

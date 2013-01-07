@@ -30,8 +30,7 @@ namespace Poco { namespace Util { class AbstractConfiguration; }; };
 class CustomDataSource : public DataSource
 {
 public:
-	CustomDataSource(Poco::Logger& logger, shared_ptr<Database> charDb, shared_ptr<Database> objDb,
-		const Poco::Util::AbstractConfiguration* conf);
+	CustomDataSource(Poco::Logger& logger, shared_ptr<Database> charDb, shared_ptr<Database> objDb);
 	~CustomDataSource();
 
 	struct DataException : public GenericException<std::runtime_error>
@@ -41,18 +40,27 @@ public:
 
 	struct InvalidTableException : public DataException
 	{
-		InvalidTableException(string tableName) : DataException("InvalidTableException"), _tableName(std::move(tableName)) {}
-		InvalidTableException(string tableName, const char* excName) : DataException(excName), _tableName(std::move(tableName)) {}
-		string toString() const override { return "Invalid Table Name: " + tableName(); }
+		InvalidTableException(string tableName, string descr = "Invalid TableInfo") 
+			: DataException("InvalidTableException"), _tableName(std::move(tableName)), _descr(descr) {}
+		InvalidTableException(string tableName, string descr,  const char* excName) 
+			: DataException(excName), _tableName(std::move(tableName)), _descr(descr) {}
+		string toString() const override { return descr() + ": " + tableName(); }
 		string tableName() const { return _tableName; }
+		string descr() const { return _descr; }
 	private:
 		string _tableName;
+		string _descr;
 	};
+
+	static void VerifyTable(string whichOne);
+	bool allowTable(string whichOne);
+	bool removeAllowedTable(string whichOne);
+	vector<string> getAllowedTables() const;
 
 	struct DisallowedTableException : public InvalidTableException
 	{
-		DisallowedTableException(string tableName) : InvalidTableException(std::move(tableName), "DisallowedTableException") {}
-		string toString() const override { return "Table name not allowed: " + tableName(); }
+		DisallowedTableException(string tableName, string descr = "TableInfo not allowed") 
+			: InvalidTableException(std::move(tableName), descr, "DisallowedTableException") {}
 	};
 
 	struct DataFetchException: public DataException
@@ -145,6 +153,8 @@ protected:
 	};
 	struct TableInfo
 	{
+		TableInfo() : dbase(DB_UNK) {}
+		TableInfo(std::string inputName);
 		TableInfo(DbSource src_, string tblName_) : dbase(src_), table(std::move(tblName_)) {}
 		bool operator==(const TableInfo& rhs) const;
 		bool operator!=(const TableInfo& rhs) const
@@ -169,7 +179,6 @@ protected:
 		DbSource dbase;
 		string table;
 	};
-	static TableInfo GetTableInfo(std::string inputName);
 
 	Database* getDB(DbSource src) const 
 	{ 
