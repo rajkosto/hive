@@ -19,6 +19,9 @@
     <ClCompile Include="DataSource\SqlObjDataSource.cpp">
       <Filter>DataSource</Filter>
     </ClCompile>
+    <ClCompile Include="DataSource\CustomDataSource.cpp">
+      <Filter>DataSource</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DataSource\DataSource.h">
@@ -41,6 +44,9 @@
       <Filter>DataSource</Filter>
     </ClInclude>
     <ClInclude Include="DataSource\SqlObjDataSource.h">
+      <Filter>DataSource</Filter>
+    </ClInclude>
+    <ClInclude Include="DataSource\CustomDataSource.h">
       <Filter>DataSource</Filter>
     </ClInclude>
   </ItemGroup>

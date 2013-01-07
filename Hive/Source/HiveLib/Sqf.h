@@ -32,6 +32,7 @@ namespace Sqf
 	int GetIntAny(const Value& val);
 	Int64 GetBigInt(const Value& val);
 	string GetStringAny(const Value& val);
+	bool GetBoolAny(const Value& val);
 
 	void runTest();
 }

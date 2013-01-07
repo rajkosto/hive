@@ -174,6 +174,9 @@ namespace std
 	}
 };
 
+#include <boost/algorithm/string/predicate.hpp>
+#include <boost/algorithm/string/trim.hpp>
+
 namespace
 {
 	class NullVisitor : public boost::static_visitor<bool>
@@ -265,6 +268,36 @@ namespace
 		string operator()(const string& origStr) const { return origStr; }
 		template<typename T> string operator()(const T& other) const { return lexical_cast<string>(other); }
 	};
+
+	class BooleanVisitor : public boost::static_visitor<bool>
+	{
+	public:
+		bool operator()(std::string someStr) const 
+		{
+			boost::trim(someStr);
+			if (someStr.length() < 1)
+				return false;
+			if (boost::iequals(someStr,"false"))
+				return false;
+			if (boost::iequals(someStr,"true"))
+				return true;
+
+			try
+			{
+				double numeric = boost::lexical_cast<double>(someStr);
+				return (*this)(numeric);
+			}
+			catch (const boost::bad_lexical_cast&)
+			{
+				return true; //any non-number non-empty string is true
+			}
+		}
+		bool operator()(const Sqf::Parameters& arr) const
+		{
+			return (arr.size() > 0);
+		}
+		template<typename T> bool operator()(T other) const { return other != 0; }
+	};
 };
 
 #include <boost/lexical_cast.hpp>
@@ -302,8 +335,28 @@ namespace Sqf
 		return boost::apply_visitor(StringAnyVisitor(),val);
 	}
 
+	bool GetBoolAny(const Value& val)
+	{
+		return boost::apply_visitor(BooleanVisitor(),val);
+	}
+
 	void runTest()
 	{
+		poco_assert(GetBoolAny(Value(true)) == true);
+		poco_assert(GetBoolAny(Value(false)) == false);
+		poco_assert(GetBoolAny(Value((void*)nullptr)) == false);
+		poco_assert(GetBoolAny(Value(string("true"))) == true);
+		poco_assert(GetBoolAny(Value(string("false"))) == false);
+		poco_assert(GetBoolAny(Value(string("0.0"))) == false);
+		poco_assert(GetBoolAny(Value(0.0)) == false);
+		poco_assert(GetBoolAny(Value(0)) == false);
+		poco_assert(GetBoolAny(Value(1.5)) == true);
+		poco_assert(GetBoolAny(Value(string("-1.5"))) == true);
+		poco_assert(GetBoolAny(Value(5)) == true);
+		poco_assert(GetBoolAny(lexical_cast<Value>(string("[]"))) == false);
+		poco_assert(GetBoolAny(lexical_cast<Value>(string("[false]"))) == true);
+		poco_assert(GetBoolAny(Value(string(""))) == false);
+
 		vector<string> testSamples;
 		testSamples.push_back("5");
 		testSamples.push_back("5.0");

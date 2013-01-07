@@ -116,6 +116,12 @@ int HiveExtApp::main( const std::vector<std::string>& args )
 
 HiveExtApp::HiveExtApp(string suffixDir) : AppServer("HiveExt",suffixDir), _serverId(-1)
 {
+	//custom data retrieval
+	handlers[501] = boost::bind(&HiveExtApp::dataRequest,this,_1,false);	//sync load init and wait
+	handlers[502] = boost::bind(&HiveExtApp::dataRequest,this,_1,true);		//async load init
+	handlers[503] = boost::bind(&HiveExtApp::dataStatus,this,_1);			//retrieve request status and info
+	handlers[504] = boost::bind(&HiveExtApp::dataFetchRow,this,_1);			//fetch row from completed query
+	handlers[505] = boost::bind(&HiveExtApp::dataClose,this,_1);			//destroy any trace of request
 	//server and object stuff
 	handlers[302] = boost::bind(&HiveExtApp::streamObjects,this,_1);
 	handlers[303] = boost::bind(&HiveExtApp::objectInventory,this,_1,false);
@@ -480,4 +486,398 @@ Sqf::Value HiveExtApp::playerDeath( Sqf::Parameters params )
 	int duration = static_cast<int>(Sqf::GetDouble(params.at(1)));
 	
 	return booleanReturn(_charData->killCharacter(characterId,duration));
+}
+
+#include <Poco/HexBinaryEncoder.h>
+#include <Poco/HexBinaryDecoder.h>
+
+namespace
+{
+	class WhereVisitor : public boost::static_visitor<CustomDataSource::WhereElem>
+	{
+	public:
+		CustomDataSource::WhereElem operator()(const std::string& opStr) const 
+		{
+			auto glue = CustomDataSource::WhereGlue(opStr);
+			if (!glue.isValid())
+				throw std::string("Logical operator unknown: '"+opStr+"'");
+			return glue;
+		}
+		CustomDataSource::WhereElem operator()(const Sqf::Parameters& condArr) const
+		{
+			const char* currElem;
+			try
+			{
+				currElem = "COLUMN";
+				const auto& columnStr = boost::get<string>(condArr.at(0));
+
+				currElem = "OP";
+				const auto& opStr = boost::get<string>(condArr.at(1));
+				auto opReal = CustomDataSource::WhereCond::OperandFromStr(opStr);
+				if (opReal >= CustomDataSource::WhereCond::OP_COUNT)
+					throw std::string("Condition has unknown OP '" + opStr + "'");
+
+				string constantStr;
+				if (opReal != CustomDataSource::WhereCond::OP_ISNULL &&
+					opReal != CustomDataSource::WhereCond::OP_ISNOTNULL)
+				{
+					currElem = "CONSTANT";
+					constantStr = boost::get<string>(condArr.at(2));
+				}
+
+				auto cond = CustomDataSource::WhereCond(columnStr,opReal,constantStr);
+				if (!cond.isValid())
+					throw std::string("Condition COLUMN is empty");
+
+				return cond;
+			}
+			catch(const boost::bad_get&)
+			{
+				throw std::string("Condition " + string(currElem) + " not a string");
+			}
+			catch(const std::out_of_range&)
+			{
+				throw std::string("Condition doesn't have " + string(currElem) + " element");
+			}
+		}
+		template <typename T> CustomDataSource::WhereElem operator()(T) const
+		{
+			throw boost::bad_get();
+		}
+	};
+
+	std::string	TokenToHex(UInt32 token)
+	{
+		std::ostringstream ostr;
+		Poco::HexBinaryEncoder enc(ostr);
+		enc.rdbuf()->setLineLength(0);
+		enc.write((const char*)&token,sizeof(token));
+		enc.close();
+		return ostr.str();
+	}
+
+	UInt32 HexToToken(std::string strData)
+	{
+		strData.erase(remove_if(strData.begin(),strData.end(),::isspace), strData.end());
+		if (strData.length() != sizeof(UInt32)*2)
+			throw boost::bad_lexical_cast();
+
+		UInt32 token = 0;
+		std::istringstream istr(strData);
+		try
+		{
+			Poco::HexBinaryDecoder dec(istr);
+			dec.read((char*)&token,sizeof(token));
+		}
+		catch(const Poco::DataFormatException&)
+		{
+			throw boost::bad_lexical_cast();
+		}
+
+		return token;
+	}
+};
+
+//CHILD:501:DbName.TableName:["ColumnName1","ColumnName2"]:["NOT",["ColumnNameX","<","Constant"]],"AND",["SomeOtherColumn","RLIKE","[0-9]"]]:[0,50]:
+//CHILD:FUNC:TBLNAME:COLUMNSARR:WHEREARR:LIMITS
+
+//If you use function number 501 the request is synchronous (and query errors are returned immediately)
+//otherwise, function number 502 is asynchronous, which means the data might be in WAIT state for a while
+
+//DbName in TBLNAME is either Character or Object
+//The requested Table must be previously-enabled for custom data queries through HiveExt.ini
+
+//COLUMNSARR is an array of column names to fetch
+//alternatively, COLUMNSARR can be a single string called COUNT to get the row count ONLY
+
+//WHEREARR is an array, whose elements can either be:
+//1. a single string, which denotes the boolean-link operator to apply
+//in this case, it can be "AND", "OR", "NOT", or any number of "(" or ")"
+//2. an array of 3 elements [COLUMN,OP,CONSTANT], all 3 elements should be strings
+//COLUMN is the column on which comparison OP will be applied to
+//you can append .length to COLUMN to use it's length instead of it's value
+//OP can be "<", ">", "=", "<>", "IS NULL", "IS NOT NULL", "LIKE", "NOT LIKE", "RLIKE", "NOT RLIKE"
+//CONSTANT is a literal value with which to perform the comparison
+//in the LIKE/RLIKE case, it's either a LIKE formatting string, or a REGEXP formatted string
+
+//LIMITS is either an array of two numbers, [OFFSET, COUNT]
+//or a single number COUNT
+//this corresponds to the SQL versions of LIMIT COUNT or LIMIT OFFSET,COUNT
+//this parameter is optional, you can omit it by just not having that :[*] at the end
+
+//The return value is either ["OK",UNIQID] where UNIQID represents the string token that you can later use to retrieve results
+//or ["ERROR",ERRORDESCR] where ERRORDESCR is a description of the error that happened
+Sqf::Value HiveExtApp::dataRequest( Sqf::Parameters params, bool async )
+{
+	auto retErr = [](string errMsg) -> Sqf::Value
+	{
+		vector<Sqf::Value> errRtn; errRtn.push_back(string("ERROR")); errRtn.push_back(std::move(errMsg));
+		return errRtn;
+	};
+
+	auto tableName = boost::get<string>(params.at(0));
+	vector<string> fields;
+	{
+		int currIdx = -1;
+		try
+		{
+			const auto& sqfFields = boost::get<Sqf::Parameters>(params.at(1));
+			fields.reserve(sqfFields.size());
+			for (size_t i=0; i<sqfFields.size(); i++)
+			{
+				currIdx++;
+				fields.push_back(boost::get<string>(sqfFields[i]));
+			}
+		}
+		catch(const boost::bad_get&)
+		{
+			string errorMsg;
+			if (currIdx < 0)
+				errorMsg = "FIELDS not an array";
+			else
+				errorMsg = "FIELDS[" + boost::lexical_cast<string>(currIdx) + "] not a string";
+		}
+	}
+	vector<CustomDataSource::WhereElem> where;
+	{
+		const auto& whereSqfArr = boost::get<Sqf::Parameters>(params.at(2));
+		for (size_t i=0; i<whereSqfArr.size(); i++)
+		{
+			try
+			{
+				where.push_back(boost::apply_visitor(WhereVisitor(),whereSqfArr[i]));
+			}
+			catch (const boost::bad_get&)
+			{
+				string errorMsg = "WHERE[" + boost::lexical_cast<string>(i) + "] not a string or array";
+				return retErr(errorMsg);
+			}
+			catch(const std::string& e)
+			{
+				string errorMsg = "WHERE[" + boost::lexical_cast<string>(i) + "] " + e;
+				return retErr(errorMsg);
+			}
+		}
+	}
+
+	Int64 limitCount = -1;
+	Int64 limitOffset = 0;
+
+	if (params.size() >= 4)
+	{
+		try
+		{
+			limitCount = Sqf::GetBigInt(params[3]);
+		}
+		catch (const boost::bad_get&)
+		{
+			try
+			{
+				const auto& limitArr = boost::get<Sqf::Parameters>(params[3]);
+				if (limitArr.size() < 2)
+					throw boost::bad_get();
+
+				limitOffset = Sqf::GetBigInt(limitArr[0]);
+				limitCount = Sqf::GetBigInt(limitArr[1]);
+			}
+			catch (const boost::bad_get&)
+			{
+				string errorMsg = "LIMIT in invalid format: '"+boost::lexical_cast<string>(params[3])+"'";
+				return retErr(errorMsg);
+			}
+		}
+	}
+
+	try
+	{
+		UInt32 token = _customData->dataRequest(tableName,fields,where,limitCount,limitOffset,async);
+		vector<Sqf::Value> goodRtn;
+		goodRtn.push_back(string("OK"));
+		goodRtn.push_back(TokenToHex(token));
+		return goodRtn;
+	}
+	catch(const CustomDataSource::DataException& e)
+	{
+		return retErr(e.toString());
+	}
+}
+
+namespace
+{
+	Sqf::Value ReturnStatus(std::string status, Sqf::Parameters rest)
+	{
+		Sqf::Parameters outRet;
+		outRet.push_back(std::move(status));
+		for (size_t i=0; i<rest.size(); i++)
+			outRet.push_back(std::move(rest[i]));
+
+		return Sqf::Value(std::move(outRet));
+	}
+	template<typename T>
+	Sqf::Value ReturnStatus(std::string status, T other)
+	{
+		Sqf::Parameters rest; rest.push_back(std::move(other));
+		return ReturnStatus(std::move(status),std::move(rest));
+	}
+	Sqf::Value ReturnStatus(std::string status)
+	{
+		return ReturnStatus(std::move(status),Sqf::Parameters());
+	}
+
+	Sqf::Value ReturnBadToken(bool reallyBad = true)
+	{
+		return ReturnStatus("UNKID",reallyBad);
+	}
+
+	Sqf::Value ReturnError(std::string errMsg)
+	{
+		return ReturnStatus("ERROR",std::move(errMsg));
+	}
+
+	Sqf::Value HandleRequestState(CustomDataSource::RequestState state)
+	{
+		if (state == CustomDataSource::REQ_PENDING)
+			return ReturnStatus("WAIT");
+		else if (state == CustomDataSource::REQ_NOMOREROWS)
+			return ReturnStatus("NOMORE");
+		else if (state == CustomDataSource::REQ_UNKNOWN)
+			return ReturnBadToken(false);
+		else
+			return ReturnError("Unknown status");
+	}
+
+	UInt32 FetchToken(const Sqf::Parameters& params)
+	{
+		try
+		{
+			return HexToToken(boost::get<string>(params.at(0)));
+		}
+		catch(const boost::bad_lexical_cast&)
+		{
+			//invalid characters in string
+			return 0;
+		}
+		catch(const boost::bad_get&)
+		{
+			//not a string
+			return 0;
+		}
+		catch(const std::out_of_range&)
+		{
+			//doesn't even exist
+			return 0;
+		}
+	}
+
+};
+
+//CHILD:503:UNIQID:
+//UNIQID is the string you received with a call to 501/502
+//the return value is either
+//["OK",numRows,numFields,[field1,field2]]
+//["WAIT"]
+//["ERROR",ERRORDESCR]
+//["UNKID",isInvalidId]
+//"OK" return code gives you information about the query, 
+//like total number of rows, number of fields, and the field names in an array
+//"WAIT" = the asynchronous operation didn't complete yet
+//"ERROR" = the asynchronous operation failed, error info is in ERRORDESCR
+//if you get this result, the UNIQID will not be usable anymore (not even for status)
+//"UNKID" = unknown UNIQID specified, or it has been cleared (by fetching ERROR status or last row)
+//additiionally, if isInvalidId is set to true, then the UNIQID is malformed/missing and would never have worked
+Sqf::Value HiveExtApp::dataStatus( Sqf::Parameters params )
+{
+	UInt32 token = FetchToken(params);
+	if (!token)
+		return ReturnBadToken();
+	
+	try
+	{
+		UInt64 numRows = 0;
+		size_t numCols = 0;
+		vector<string> fields;
+		auto reqStatus = _customData->requestStatus(token,numRows,numCols,fields);
+		if (reqStatus == CustomDataSource::REQ_OK)
+		{
+			Sqf::Parameters retVal;
+			retVal.push_back(static_cast<Int64>(numRows));
+			retVal.push_back(static_cast<Int64>(numCols));
+			{
+				Sqf::Parameters realFields;
+				for (auto it=fields.begin(); it!=fields.end(); ++it)
+					realFields.push_back(Sqf::Value(std::move(*it)));
+
+				retVal.push_back(std::move(realFields));
+			}
+			
+			return ReturnStatus("OK",std::move(retVal));
+		}
+		return HandleRequestState(reqStatus);
+	}
+	catch(const CustomDataSource::DataException& e)
+	{
+		return ReturnError(e.toString());
+	}
+}
+
+//CHILD:504:UNIQID
+//see documentation for 503 for everything except when the return code is OK or NOMORE:
+//["OK",["fieldVal1","fieldVal2",false,"fieldVal3"]]
+//the second element of the return array is the array of field values
+//each field value will just be a string, EXCEPT if the field IS NULL
+//then the field value will be a boolean false
+//["NOMORE"]
+//indicates that the result set rows have been exhausted
+//no actual field values are returned, just a marker to let you know that you should stop
+//and close the request
+Sqf::Value HiveExtApp::dataFetchRow( Sqf::Parameters params )
+{
+	UInt32 token = FetchToken(params);
+	if (!token)
+		return ReturnBadToken();
+
+	try
+	{
+		vector<CustomDataSource::RowFieldData> values;
+		auto reqStatus = _customData->getRowData(token,values);
+		if (reqStatus == CustomDataSource::REQ_OK)
+		{
+			Sqf::Parameters retVal;
+			{
+				Sqf::Parameters sqfVals;
+				for (size_t i=0; i<values.size(); i++)
+				{
+					if (!values[i].is_initialized())
+						sqfVals.push_back(false);
+					else
+						sqfVals.push_back(std::move(*values[i]));
+				}
+				retVal.push_back(std::move(sqfVals));
+			}
+
+			return ReturnStatus("OK",std::move(retVal));
+		}
+		return HandleRequestState(reqStatus);
+	}
+	catch(const CustomDataSource::DataException& e)
+	{
+		return ReturnError(e.toString());
+	}
+}
+
+//CHILD:504:UNIQID
+//closes a retrieved request or cancels a pending one
+//returns OK if it was closed/cancelled
+//returns UNKID if the UNIQID was already closed/bad
+Sqf::Value HiveExtApp::dataClose( Sqf::Parameters params )
+{
+	UInt32 token = FetchToken(params);
+	if (!token)
+		return ReturnBadToken();
+
+	bool closed = _customData->closeRequest(token);
+	if (closed)
+		return ReturnStatus("OK");
+	else
+		return ReturnBadToken(false);
 }

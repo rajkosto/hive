@@ -48,6 +48,78 @@ int main()
 	DllMain(NULL,DLL_PROCESS_ATTACH,NULL);
 	char testOutBuf[4096];
 	RVExtension(testOutBuf,sizeof(testOutBuf),"CHILD:307:");
+//#define CUSTOMDATA_TESTS
+#ifdef CUSTOMDATA_TESTS
+	vector<string> dbTests;
+	dbTests.push_back("CHILD:502:Character.characters:[\"charId\",\"status\",\"handle\"]:[\"( (\",[\"charId\",\"!=\",\"7\"],\"))\"]:[0,10]:");
+	dbTests.push_back("CHILD:501:Character.characters:[\"charId\",\"status\",\"handle\"]:[]:");
+	dbTests.push_back("CHILD:503:");
+	dbTests.push_back("CHILD:504:353253:");
+	dbTests.push_back("CHILD:505:\"sdmf\":");
+	dbTests.push_back("CHILD:503:\"132\":");
+	dbTests.push_back("CHILD:504:\"aaaaaaaa\":");
+	dbTests.push_back("CHILD:505:\"353253\":");
+	for (auto it=dbTests.begin(); it!=dbTests.end(); ++it)
+	{
+		RVExtension(testOutBuf,sizeof(testOutBuf),it->c_str());
+		string token;
+		{
+			auto firstResponse = boost::get<Sqf::Parameters>(lexical_cast<Sqf::Value>(string(testOutBuf)));
+			string firstMsg = boost::get<string>(firstResponse.at(0));
+			if (firstMsg == "OK")
+				token = boost::get<string>(firstResponse.at(1));
+			else
+				continue;
+		}
+
+		int numRows = 0;
+		for (;;)
+		{
+			string reqStr = "CHILD:503:\"" + token + "\":";
+			RVExtension(testOutBuf,sizeof(testOutBuf),reqStr.c_str());
+			auto detailsResp = boost::get<Sqf::Parameters>(lexical_cast<Sqf::Value>(string(testOutBuf)));
+			string detailsMsg = boost::get<string>(detailsResp.at(0));
+
+			if (detailsMsg == "WAIT")
+			{
+				Sleep(10);
+				continue;
+			}
+
+			if (detailsMsg != "OK")
+				break;
+			else
+			{
+				numRows = Sqf::GetIntAny(detailsResp.at(1));
+				break;
+			}
+		}
+		
+		for (int i=0; i< numRows+2; i++)
+		{
+			string reqStr = "CHILD:504:\"" + token + "\":";
+			RVExtension(testOutBuf,sizeof(testOutBuf),reqStr.c_str());
+
+			auto rowResp = boost::get<Sqf::Parameters>(lexical_cast<Sqf::Value>(string(testOutBuf)));
+			string rowMsg = boost::get<string>(rowResp.at(0));
+
+			if (rowMsg != "OK")
+			{
+				if (rowMsg != "NOMORE")
+					break;
+			}
+		}
+
+		string reqStr = "CHILD:505:\"" + token + "\":";
+		RVExtension(testOutBuf,sizeof(testOutBuf),reqStr.c_str());
+		auto closeResp = boost::get<Sqf::Parameters>(lexical_cast<Sqf::Value>(string(testOutBuf)));
+		string closeMsg = boost::get<string>(closeResp.at(0));
+
+		if (closeMsg != "OK")
+			continue;
+	}
+	
+#else
 	RVExtension(testOutBuf,sizeof(testOutBuf),"CHILD:302:1337:");
 	Sqf::Parameters objStreamStart = boost::get<Sqf::Parameters>(lexical_cast<Sqf::Value>(string(testOutBuf)));
 	poco_assert(boost::get<string>(objStreamStart[0]) == "ObjectStreamStart");
@@ -61,6 +133,7 @@ int main()
 	RVExtension(testOutBuf,sizeof(testOutBuf),"CHILD:201:5700692:[80,[2588.59,10073.7,0.001]]:");
 	RVExtension(testOutBuf,sizeof(testOutBuf),"CHILD:308:1311:Wire_cat1:0:6255222:[329.449,[10554.4,3054.12,0]]:[]:[]:0:1.055e14:");
 	RVExtension(testOutBuf,sizeof(testOutBuf),"CHILD:101:23572678:1311:Audris:");
+#endif
 
 	DllMain(NULL,DLL_PROCESS_DETACH,NULL);
 #endif

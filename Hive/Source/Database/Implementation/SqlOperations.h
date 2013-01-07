@@ -40,7 +40,15 @@ public:
 	virtual ~SqlOperation() {}
 protected:
 	friend class SqlTransaction;
-	virtual bool rawExecute(SqlConnection& sqlConn) = 0;
+	//execute as a single thing
+	virtual bool rawExecute(SqlConnection& sqlConn, bool throwExc = false) = 0;
+	//execute as part of a transaction (no retries)
+	typedef boost::function<void()> SuccessCallback;
+	virtual void transExecute(SqlConnection& sqlConn, SuccessCallback& transSuccess)
+	{
+		//execute normally, but throw exc on error so we dont retry
+		this->rawExecute(sqlConn,true);
+	}
 };
 
 // ---- ASYNC STATEMENTS / TRANSACTIONS ----
@@ -51,7 +59,7 @@ public:
 	SqlPlainRequest(std::string sql) : _sql(std::move(sql)) {};
 	~SqlPlainRequest() {};
 protected:
-	bool rawExecute(SqlConnection& sqlConn) override;
+	bool rawExecute(SqlConnection& sqlConn, bool throwExc) override;
 private:
 	std::string _sql;
 };
@@ -60,11 +68,11 @@ class SqlTransaction : public SqlOperation
 {
 public:
 	SqlTransaction() {}
-	~SqlTransaction();
+	~SqlTransaction() {};
 
 	void queueOperation(SqlOperation* sql) { _queue.push_back(sql); }
 protected:
-	bool rawExecute(SqlConnection& sqlConn) override;
+	bool rawExecute(SqlConnection& sqlConn, bool throwExc) override;
 private:
 	boost::ptr_vector<SqlOperation> _queue;
 };
@@ -75,7 +83,7 @@ public:
 	SqlPreparedRequest(const SqlStatementID& stId, SqlStmtParameters& arg) : _id(stId) { _params.swap(arg); }
 	~SqlPreparedRequest() {}
 protected:
-	bool rawExecute(SqlConnection& sqlConn) override;
+	bool rawExecute(SqlConnection& sqlConn, bool throwExc) override;
 private:
 	SqlStatementID _id;
 	SqlStmtParameters _params;
@@ -100,7 +108,8 @@ public:
 	SqlQuery(std::string sql, QueryCallback callback, SqlResultQueue& queue) : _sql(std::move(sql)), _callback(callback), _queue(&queue) {};
 	~SqlQuery() {};
 protected:
-	bool rawExecute(SqlConnection& sqlConn) override;
+	bool rawExecute(SqlConnection& sqlConn, bool throwExc) override;
+	void transExecute(SqlConnection& sqlConn, SuccessCallback& transSuccess) override;
 private:
 	std::string _sql;
 	QueryCallback _callback;

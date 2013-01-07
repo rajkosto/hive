@@ -36,58 +36,117 @@ bool SqlOperation::execute( SqlConnection& sqlConn )
 	return rawExecute(sqlConn);
 }
 
-bool SqlPlainRequest::rawExecute(SqlConnection& sqlConn)
+bool SqlPlainRequest::rawExecute(SqlConnection& sqlConn, bool throwExc)
 {
 	//just do it
-	return Retry::SqlOp<bool>(sqlConn.getDB().getLogger(),[&](SqlConnection& c){ return c.execute(_sql.c_str()); })(sqlConn,"PlainRequest",[&](){ return _sql; });
+	return Retry::SqlOp<bool>(sqlConn.getDB().getLogger(),[&](SqlConnection& c){ return c.execute(_sql.c_str()); }, throwExc)
+		(sqlConn,"PlainRequest",[&](){ return _sql; });
 }
 
-SqlTransaction::~SqlTransaction()
-{
-	while(!_queue.empty())
-		_queue.pop_back();
-}
-
-bool SqlTransaction::rawExecute(SqlConnection& sqlConn)
+bool SqlTransaction::rawExecute(SqlConnection& sqlConn, bool throwExc)
 {
 	if(_queue.empty())
 		return true;
 
-	sqlConn.transactionStart();
-
-	const size_t nItems = _queue.size();
-	for (size_t i=0; i<nItems; i++)
+	for (;;)
 	{
-		SqlOperation& stmt = _queue[i];
-
-		if(!stmt.rawExecute(sqlConn))
+		try
 		{
-			sqlConn.transactionRollback();
-			return false;
+			//the only time this returns false is when transactions aren't supported, so bail out
+			//all other errors will throw a SqlException
+			if (!sqlConn.transactionStart())
+				return false;
+
+			vector<SuccessCallback> callUsWhenDone;
+			for (auto it=_queue.begin(); it!=_queue.end(); ++it)
+			{
+				SuccessCallback callMeOnDone;
+				it->transExecute(sqlConn,callMeOnDone);
+
+				if (!callMeOnDone.empty())
+					callUsWhenDone.push_back(std::move(callMeOnDone));
+			}
+
+			poco_assert(sqlConn.transactionCommit() == true);
+		
+			//whole transaction came through, which means all the callbacks have good data
+			for (size_t i=0; i<callUsWhenDone.size(); i++)
+				callUsWhenDone[i]();
+
+			break;
+		}
+		catch(const SqlConnection::SqlException& e)
+		{
+			//need to roll it back if the session hasn't ended
+			if (!e.isConnLost())
+			{
+				//try a rollback command, if we get disconnected here then that's ok.
+				try { poco_assert(sqlConn.transactionRollback() == true); }
+				catch (const SqlConnection::SqlException& e)
+				{ poco_assert(e.isConnLost() == true); }
+			}
+			else //conn lost, need to reconnect
+			{
+				try { sqlConn.connect(); }
+				catch (const SqlConnection::SqlException& connExc)
+				{
+					//fatal error, cannot reach database anymore
+					connExc.toLog(sqlConn.getDB().getLogger());
+					if (throwExc)
+						throw connExc;								
+					else
+						return false;
+				}
+			}
+
+			if (throwExc)
+				throw e;
+			else if (e.isRepeatable())
+				continue;
+			else
+				return false;
 		}
 	}
 
-	return sqlConn.transactionCommit();
+	return true;
 }
 
-bool SqlPreparedRequest::rawExecute(SqlConnection& sqlConn)
+bool SqlPreparedRequest::rawExecute(SqlConnection& sqlConn, bool throwExc)
 {
-	return Retry::SqlOp<bool>(sqlConn.getDB().getLogger(),[&](SqlConnection& c){ return c.executeStmt(_id, _params); })(sqlConn,"PreparedRequest",[&](){ return sqlConn.getStmt(_id)->getSqlString(true); });
+	return Retry::SqlOp<bool>(sqlConn.getDB().getLogger(),[&](SqlConnection& c){ return c.executeStmt(_id, _params); }, throwExc)
+		(sqlConn,"PreparedRequest",[&](){ return sqlConn.getStmt(_id)->getSqlString(true); });
 }
 
 // ---- ASYNC QUERIES ----
-bool SqlQuery::rawExecute(SqlConnection& sqlConn)
+bool SqlQuery::rawExecute(SqlConnection& sqlConn, bool throwExc)
 {
 	if(!_queue)
 		return false;
 
 	//execute the query and store the result in the callback
-	auto res = Retry::SqlOp< unique_ptr<QueryResult> >(sqlConn.getDB().getLogger(),[&](SqlConnection& c){ return c.query(_sql.c_str()); })(sqlConn);
-	_callback.setResult(res.release());
-	//add the callback to the sql result queue of the thread it originated from
-	_queue->push(_callback);
+	{
+		auto res = Retry::SqlOp<unique_ptr<QueryResult>>(sqlConn.getDB().getLogger(),[&](SqlConnection& c){ return c.query(_sql.c_str()); }, throwExc)
+			(sqlConn,"AsyncQuery",[&](){ return _sql; });
+		_callback.setResult(res.release());
+	}
+
+	//this is set only if we're part of a transaction
+	//we can only process the calback immediately if we aren't
+	if (!throwExc)
+	{
+		//add the callback to the sql result queue of the thread it originated from
+		_queue->push(_callback);
+	}
 
 	return true;
+}
+
+void SqlQuery::transExecute( SqlConnection& sqlConn, SuccessCallback& transSuccess )
+{
+	SqlOperation::transExecute(sqlConn,transSuccess);
+	//the callback should now be primed with the result (or lack of)
+	//on complete transaction success, we will push it to the queue
+	transSuccess = [&]() { _queue->push(_callback); };
 }
 
 void SqlResultQueue::processCallbacks()

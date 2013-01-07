@@ -31,7 +31,7 @@ namespace Retry
 		typedef boost::function<RetVal(SqlConnection&)> FuncType;
 		typedef boost::function<std::string()> SqlStrType;
 
-		SqlOp(Poco::Logger& log_, FuncType runMe_) : runMe(runMe_), loggerInst(log_) {}
+		SqlOp(Poco::Logger& log_, FuncType runMe_, bool throwExc_ = false) : runMe(runMe_), loggerInst(log_), throwExc(throwExc_) {}
 		RetVal operator () (SqlConnection& theConn,const char* logStr="",SqlStrType sqlLogFunc = [](){ return ""; })
 		{
 			for (;;)
@@ -69,10 +69,15 @@ namespace Retry
 						catch (const SqlConnection::SqlException& connExc)
 						{
 							connExc.toLog(loggerInst);
-							return 0;
+							if (throwExc)
+								throw connExc;								
+							else
+								return 0;
 						}
 					}
-					if (opExc.isRepeatable())
+					if (throwExc)
+						throw opExc;
+					else if (opExc.isRepeatable())
 						continue;
 					else
 						return 0;
@@ -82,5 +87,6 @@ namespace Retry
 	private:
 		FuncType runMe;
 		Poco::Logger& loggerInst;
+		bool throwExc;
 	};
 };

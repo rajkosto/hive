@@ -124,17 +124,17 @@ size_t SqlConnection::escapeString( char* to, const char* from, size_t length ) 
 
 bool SqlConnection::transactionStart()
 {
-	return true;
+	return false;
 }
 
 bool SqlConnection::transactionCommit()
 {
-	return true;
+	return false;
 }
 
 bool SqlConnection::transactionRollback()
 {
-	return true;
+	return false;
 }
 
 void SqlConnection::StmtHolder::clear()

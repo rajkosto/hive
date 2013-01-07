@@ -29,11 +29,8 @@ bool DirectHiveApp::initialiseService()
 	_charDb = DatabaseLoader::create(DatabaseLoader::DBTYPE_MYSQL);
 	Poco::Logger& dbLogger = Poco::Logger::get("Database");
 
-	string initString;
-	{
-		Poco::AutoPtr<Poco::Util::AbstractConfiguration> globalDBConf(config().createView("Database"));
-		initString = DatabaseLoader::makeInitString(globalDBConf);
-	}
+	Poco::AutoPtr<Poco::Util::AbstractConfiguration> globalDBConf(config().createView("Database"));
+	string initString = DatabaseLoader::makeInitString(globalDBConf);
 
 	if (!_charDb->initialise(dbLogger,initString))
 		return false;
@@ -73,6 +70,8 @@ bool DirectHiveApp::initialiseService()
 	
 	Poco::AutoPtr<Poco::Util::AbstractConfiguration> objConf(config().createView("Objects"));
 	_objData.reset(new SqlObjDataSource(logger(),_objDb,objConf.get()));
+
+	_customData.reset(new CustomDataSource(logger(),_charDb,_objDb,globalDBConf));
 	
 	return true;
 }

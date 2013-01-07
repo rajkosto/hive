@@ -24,18 +24,20 @@
 class QueryResult;
 struct QueryCallback
 {
-	typedef boost::function<void(QueryResult*)> FuncType;
+	typedef unique_ptr<QueryResult>& ResType; 
+	typedef boost::function<void(ResType)> FuncType;
 
 	QueryCallback() : res(nullptr) {}
 	QueryCallback(FuncType fun, QueryResult* res = nullptr) : fun(fun), res(res) {}
 
 	void invoke() 
 	{ 
-		scoped_ptr<QueryResult> pRes(res);
+		unique_ptr<QueryResult> pRes(res);
 		res = nullptr;
 
+		//transfer ownership to callback function so that it can stash it or use it later
 		if (!fun.empty()) 
-			fun(pRes.get());
+			fun(pRes);
 	}
 	void setResult(QueryResult* res) { this->res = res; }
 protected:

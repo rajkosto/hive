@@ -229,8 +229,11 @@ namespace
 void MySQLConnection::connect() 
 {
 	bool reconnecting = false;
+	unsigned long oldThreadId = 0;
 	if (_myConn != nullptr) //reconnection attempt
 	{
+		oldThreadId = mysql_thread_id(_myConn);
+
 		if (!mysql_ping(_myConn)) //ping ok
 			return;
 		else
@@ -286,6 +289,11 @@ void MySQLConnection::connect()
 		poco_trace(logger,Poco::format("Character set changed to %s",string(mysql_character_set_name(_myConn))));
 	else
 		poco_error(logger,Poco::format("Failed to change charset, remains at %s",string(mysql_character_set_name(_myConn))));
+
+	//rollback any transactions from old connection
+	//if server didn't terminate it yet
+	if (reconnecting)
+		mysql_kill(_myConn, oldThreadId);
 }
 
 MYSQL_STMT* MySQLConnection::_MySQLStmtInit()

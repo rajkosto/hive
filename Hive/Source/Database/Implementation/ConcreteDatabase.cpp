@@ -322,7 +322,7 @@ bool ConcreteDatabase::execute(const char* sql)
 		//add SQL request to trans queue
 		pTrans->queueOperation(new SqlPlainRequest(sql));
 	}
-	else
+	else //we are not in a transaction
 	{
 		//if async execution is not available
 		if(!_asyncAllowed)
@@ -402,6 +402,7 @@ bool ConcreteDatabase::transactionStart()
 
 	//initiate transaction on current thread
 	//currently we do not support queued transactions
+	poco_assert(_transStorage->get() == nullptr);
 	_transStorage->init();
 	return true;
 }
@@ -436,10 +437,8 @@ bool ConcreteDatabase::transactionCommitDirect()
 	//directly execute SqlTransaction
 	{
 		scoped_ptr<SqlTransaction> pTrans(_transStorage->detach());
-		pTrans->execute(getAsyncConnection());	
+		return pTrans->execute(getAsyncConnection());	
 	}
-
-	return true;
 }
 
 bool ConcreteDatabase::transactionRollback()
@@ -461,7 +460,7 @@ bool ConcreteDatabase::executeStmt( const SqlStatementID& id, SqlStmtParameters&
 	if (!_asyncConn)
 		return false;
 
-	SqlTransaction *pTrans = _transStorage->get();
+	SqlTransaction* pTrans = _transStorage->get();
 	if(pTrans)
 	{
 		//add SQL request to trans queue
@@ -473,7 +472,7 @@ bool ConcreteDatabase::executeStmt( const SqlStatementID& id, SqlStmtParameters&
 		if(!_asyncAllowed)
 			return directExecuteStmt(id, params);
 
-		// Simple sql statement
+		//Simple sql statement
 		_delayRunner->queueOperation(new SqlPreparedRequest(id, params));
 	}
 
