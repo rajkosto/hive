@@ -27,10 +27,10 @@ The Debug configuration simply compiles an executable that runs some tests, and 
 
 Usage:
 
-If you don't want to compile, you can download a prepackaged release for each revision from the github pages.
-After successful compilation (or download of a prepackaged release), the Binaries folder should contain HiveExt.dll and Database.dll
-Database.dll should be placed in the root directory of your game installation
-If you don't have the TBB library installed to global system paths, those dlls should also be copied to the same dir as Database.dll
+If you don't want to compile, you can download a prepackaged release for each released version from http://hive.rajko.info/ 
+After successful compilation (or download of a prepackaged release), the Binaries folder should contain HiveExt.dll and DatabaseMySql.dll/DatabasePostgre.dll
+DatabaseMySql.dll/DatabasePostgre.dll should be placed in the root directory of your game installation
+If you don't have the TBB library installed to global system paths, those dlls should also be copied to the same dir as DatabaseMySql.dll/DatabasePostgre.dll
 HiveExt.dll needs to go inside the currently used hive mod folder (usually @hive under the root dir)
 While your customised copy of HiveExt.ini goes into your profile folder (server profile, like cfgdayz, next to the .RPT files)
 For a description of available HiveExt.ini options, consult that file itself, where the descriptions are marked as comments
@@ -49,7 +49,7 @@ I have removed all the restrictions and certificate systems that were in place, 
 
 Recently, after the founding of the DayZMod community that currently maintains DayZMod, this project DID become the official Hive access library.
 Just compiling the source code isn't enough to connect to the public hive database though, for that, use the libraries distributed with the official server files themselves
-Or, download a "blessed" version from the downloads page (blessed version is identical to the open source one, except that it can connect to the public hive by default)
+Or, download a "blessed" version from http://hive.rajko.info/ (blessed version is identical to the open source one, except that it can connect to the public hive by default)
 You can (and it's preferred) to use the precompiled "blessed" version for connecting to your private hive as well, to save you from having to compile it yourself.
 
 Hive access library by Rajko Stojadinovic (https://github.com/rajkosto)
