@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2009-2012 Rajko Stojadinovic <http://github.com/rajkosto/hive>
+* Copyright (C) 2009-2013 Rajko Stojadinovic <http://github.com/rajkosto/hive>
 *
 * This program is free software; you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -22,9 +22,17 @@
 #include "Database/Database.h"
 #include <Poco/Util/AbstractConfiguration.h>
 
+static const UInt32 REQUIRED_DB_VERSION_NUM[4] = {0,9,14,0};
+
 class DatabaseLoader
 {
 public:
+	static string GetDbTypeFromConfig(Poco::Util::AbstractConfiguration* dbConfig);
+	static string GetDbModuleName(const string& dbType, bool physicalName = false);
+
+	static bool GetVersionOfModule(const string& moduleName, UInt32& outMajor, UInt32& outMinor, UInt32& outRev, UInt32& outBld);
+	static bool IsVersionCompatible(const UInt32* wantedVer, const UInt32* gotVer);
+	
 	static shared_ptr<Database> Create(const string& dbType);
 	static shared_ptr<Database> Create(Poco::Util::AbstractConfiguration* dbConfig);
 

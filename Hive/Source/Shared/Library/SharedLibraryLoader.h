@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2009-2012 Rajko Stojadinovic <http://github.com/rajkosto/hive>
+* Copyright (C) 2009-2013 Rajko Stojadinovic <http://github.com/rajkosto/hive>
 *
 * This program is free software; you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -29,21 +29,11 @@ class SharedLibraryLoader
 public:
 	void loadLibrary(const string& libName)
 	{
-		_loader.loadLibrary(libName + Poco::SharedLibrary::suffix());
+		string fileName = libName + Poco::SharedLibrary::suffix();
+		_loader.loadLibrary(fileName);
 	}
 
-	Base* create(const std::string& className) 
-	{ 
-		try
-		{
-			return _loader.create(className);
-		}
-		catch(const Poco::NotFoundException&)
-		{
-			this->loadLibrary(className);
-			return _loader.create(className);
-		}
-	}
+	Base* create(const std::string& className) const { return _loader.create(className); }
 	Base& instance(const std::string& className) const { return _loader.instance(className); }
 	bool canCreate(const std::string& className) const { return _loader.canCreate(className); }
 	void destroy(const std::string& className, Base* pObject) const { _loader.destroy(className,pObject); }
