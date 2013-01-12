@@ -1044,15 +1044,22 @@ Sqf::Value HiveExtApp::changeTableAccess( Sqf::Parameters params )
 
 	//then apply the changes
 	Sqf::Parameters failedAdd, failedRem;
-	for (auto it=allowTables.begin(); it!=allowTables.end(); ++it)
+	try
 	{
-		if (!_customData->allowTable(*it))
-			failedAdd.push_back(*it);
+		for (auto it=allowTables.begin(); it!=allowTables.end(); ++it)
+		{
+			if (!_customData->allowTable(*it))
+				failedAdd.push_back(*it);
+		}
+		for (auto it=removeTables.begin(); it!=removeTables.end(); ++it)
+		{
+			if (!_customData->removeAllowedTable(*it))
+				failedRem.push_back(*it);
+		}
 	}
-	for (auto it=removeTables.begin(); it!=removeTables.end(); ++it)
+	catch (const CustomDataSource::DataException& e)
 	{
-		if (!_customData->removeAllowedTable(*it))
-			failedRem.push_back(*it);
+		return ReturnBooleanStatus(false,e.toString());
 	}
 
 	Sqf::Parameters retVal;
