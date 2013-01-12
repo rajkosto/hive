@@ -50,8 +50,15 @@ string DatabaseLoader::GetDbTypeFromConfig( Poco::Util::AbstractConfiguration* d
 	return dbTypeStr;
 }
 
-string DatabaseLoader::GetDbModuleName( const string& dbType, bool physicalName )
+#include <boost/algorithm/string/predicate.hpp>
+
+string DatabaseLoader::GetDbModuleName( string dbType, bool physicalName )
 {
+	if (boost::icontains(dbType,"mysql"))
+		dbType = "MySql";
+	else if (boost::icontains(dbType,"postgre"))
+		dbType = "Postgre";
+
 	string modName = "Database"+dbType;
 	if (physicalName)
 		modName += Poco::SharedLibrary::suffix();

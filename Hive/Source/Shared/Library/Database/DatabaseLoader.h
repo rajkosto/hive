@@ -28,7 +28,7 @@ class DatabaseLoader
 {
 public:
 	static string GetDbTypeFromConfig(Poco::Util::AbstractConfiguration* dbConfig);
-	static string GetDbModuleName(const string& dbType, bool physicalName = false);
+	static string GetDbModuleName(string dbType, bool physicalName = false);
 
 	static bool GetVersionOfModule(const string& moduleName, UInt32& outMajor, UInt32& outMinor, UInt32& outRev, UInt32& outBld);
 	static bool IsVersionCompatible(const UInt32* wantedVer, const UInt32* gotVer);
