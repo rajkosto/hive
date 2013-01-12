@@ -22,37 +22,29 @@
 #include "Shared/Library/SharedLibraryLoader.h"
 #include <Poco/Util/AbstractConfiguration.h>
 #include <Poco/String.h>
-#include <Poco/NumberFormatter.h>
-#include <Poco/Format.h>
 
 namespace
 {
-	extern const char libName[] = "Database" ; 
-	typedef SharedLibraryLoader<Database, libName> LibraryType;
+	typedef SharedLibraryLoader<Database> LibraryType;
 	static Poco::SingletonHolder<LibraryType> holder;
 }
 
-shared_ptr<Database> DatabaseLoader::create(DBType dbType)
+shared_ptr<Database> DatabaseLoader::Create(const string& dbType)
 {
-	std::string dbTypeStr;
-	switch (dbType)
+	try
 	{
-	case DBTYPE_MYSQL:
-		dbTypeStr = "DatabaseMysql";
-		break;
+		return shared_ptr<Database>(holder.get()->create("Database"+dbType));
 	}
-
-	if (!holder.get()->canCreate(dbTypeStr))
-		throw CreationError(string("Unimplemented database type: ") + dbTypeStr);
-
-	return shared_ptr<Database>(holder.get()->create(dbTypeStr));
+	catch (const Poco::NotFoundException&)
+	{
+		throw CreationError("Unimplemented database type: " + dbType);
+	}
 }
 
-namespace
+shared_ptr<Database> DatabaseLoader::Create( Poco::Util::AbstractConfiguration* dbConfig )
 {
-	bool GetDBTypeFromConfig(Poco::Util::AbstractConfiguration* dbConfig, DatabaseLoader::DBType& outType)
+	string dbTypeStr;
 	{
-		string dbTypeStr;
 		if (dbConfig->has("Type"))
 			dbTypeStr = dbConfig->getString("Type");
 		else if (dbConfig->has("Provider"))
@@ -60,56 +52,34 @@ namespace
 		else if (dbConfig->has("Engine"))
 			dbTypeStr = dbConfig->getString("Engine");
 		else
-			dbTypeStr = "MySQL";
+			dbTypeStr = "MySql";
 
-		Poco::toLowerInPlace(dbTypeStr);
+		Poco::trimInPlace(dbTypeStr);
 
-		DatabaseLoader::DBType dbTypeNum;
-		if (dbTypeStr.find("mysql") != string::npos)
-			dbTypeNum = DatabaseLoader::DBTYPE_MYSQL;
-		else
-			return false;
-
-		outType = dbTypeNum;
-		return true;
+		if (dbTypeStr.length() < 1)
+			throw DatabaseLoader::CreationError(string("Unspecified DB type"));
 	}
-};
-
-shared_ptr<Database> DatabaseLoader::create( Poco::Util::AbstractConfiguration* dbConfig )
-{
-	DBType dbTypeNum;
-	if (!GetDBTypeFromConfig(dbConfig,dbTypeNum))
-		throw CreationError(string("Unrecognised DB type"));
-
-	return create(dbTypeNum);
+	return Create(dbTypeStr);
 }
 
-string DatabaseLoader::makeInitString(Poco::Util::AbstractConfiguration* dbConfig, const string& defUser, const string& defPass, const string& defDbName, const string& defDbHost)
+Database::KeyValueColl DatabaseLoader::MakeConnParams(Poco::Util::AbstractConfiguration* dbConfig)
 {
-	string host = dbConfig->getString("Host",defDbHost);
-
-	DBType dbTypeNum;
-	string socket_or_port;
-	if (dbConfig->has("Port"))
-		socket_or_port = Poco::NumberFormatter::format(dbConfig->getInt("Port"));
-	else if (dbConfig->has("Socket"))
-		socket_or_port = dbConfig->getString("Socket");
-	else if (GetDBTypeFromConfig(dbConfig,dbTypeNum))
+	Database::KeyValueColl keyVals;
 	{
-		if (dbTypeNum == DBTYPE_MYSQL)
-			socket_or_port = "3306";
-	}
+		vector<string> keys;
+		dbConfig->keys(keys);
 
-	string username = dbConfig->getString("Username",defUser);
-	string password = dbConfig->getString("Password",defPass);
-	string database = dbConfig->getString("Database",defDbName);
+		for (auto it=keys.begin(); it!=keys.end(); ++it)
+		{
+			string value = dbConfig->getString(*it);
+			Poco::trimInPlace(value);
+			string keyStr = std::move(*it);
+			Poco::toLowerInPlace(keyStr);
+			keyVals.insert(std::make_pair(std::move(keyStr),std::move(value)));
+		}
+	}	
 
-	return DatabaseLoader::makeInitString(host,socket_or_port,username,password,database);
-}
-
-string DatabaseLoader::makeInitString(const string& host, const string& socket_or_port, const string& username, const string& password, const string& database)
-{
-	return Poco::format("%s;%s;%s;%s;%s",host,socket_or_port,username,password,database);
+	return keyVals;
 }
 
 

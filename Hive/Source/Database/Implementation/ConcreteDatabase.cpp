@@ -42,7 +42,7 @@ ConcreteDatabase::~ConcreteDatabase()
 
 #include <boost/lexical_cast.hpp>
 
-bool ConcreteDatabase::initialise(Poco::Logger& dbLogger, const string& infoString, bool logSql, const string& logDir, size_t nConns)
+bool ConcreteDatabase::initialise(Poco::Logger& dbLogger, const KeyValueColl& connParams, bool logSql, const string& logDir, size_t nConns)
 {
 	stopServer();
 
@@ -75,14 +75,14 @@ bool ConcreteDatabase::initialise(Poco::Logger& dbLogger, const string& infoStri
 		//create and initialize the sync connection pool
 		for (size_t i=0; i<poolSize; i++)
 		{
-			unique_ptr<SqlConnection> pConn = createConnection(infoString);
+			unique_ptr<SqlConnection> pConn = createConnection(connParams);
 			pConn->connect();
 
 			_queryConns.push_back(pConn.release());
 		}
 
 		//create and initialize connection for async requests
-		_asyncConn = createConnection(infoString);
+		_asyncConn = createConnection(connParams);
 		_asyncConn->connect();
 	}
 	catch(const SqlConnection::SqlException& e)

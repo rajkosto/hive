@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2009-2012 Rajko Stojadinovic <http://github.com/rajkosto/hive>
+* Copyright (C) 2009-2013 Rajko Stojadinovic <http://github.com/rajkosto/hive>
 *
 * This program is free software; you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -18,17 +18,15 @@
 
 #pragma once
 
-#ifdef MYSQL_ENABLED
-
 #include "Shared/Common/Types.h"
-#include "QueryResultImpl.h"
-#include "DatabaseMysql.h"
+#include "../QueryResultImpl.h"
+#include "DatabaseMySql.h"
 
-class QueryResultMysql : public QueryResultImpl
+class QueryResultMySql : public QueryResultImpl
 {
 public:
-	QueryResultMysql(MySQLConnection* theConn, const char* sql);
-	~QueryResultMysql();
+	QueryResultMySql(MySQLConnection* theConn, const char* sql);
+	~QueryResultMySql();
 
 	bool fetchRow() override;
 	QueryFieldNames fetchFieldNames() const override;
@@ -38,5 +36,3 @@ private:
 	vector<MySQLConnection::ResultInfo> _results;
 	int _currRes;
 };
-
-#endif

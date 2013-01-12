@@ -23,22 +23,27 @@
 #include <Poco/ClassLoader.h>
 #include <Poco/Manifest.h>
 
-template <typename Base, const char* libraryName>
+template <typename Base>
 class SharedLibraryLoader
 {
 public:
-	SharedLibraryLoader()
+	void loadLibrary(const string& libName)
 	{
-		string fileName = getLibraryName() + Poco::SharedLibrary::suffix();
-		_loader.loadLibrary(fileName);
+		_loader.loadLibrary(libName + Poco::SharedLibrary::suffix());
 	}
-	~SharedLibraryLoader() 
-	{
-		//_loader.unloadLibrary(getLibraryName() + Poco::SharedLibrary::suffix());
-	}
-	std::string getLibraryName() const { return libraryName; }
 
-	Base* create(const std::string& className) const { return _loader.create(className); }
+	Base* create(const std::string& className) 
+	{ 
+		try
+		{
+			return _loader.create(className);
+		}
+		catch(const Poco::NotFoundException&)
+		{
+			this->loadLibrary(className);
+			return _loader.create(className);
+		}
+	}
 	Base& instance(const std::string& className) const { return _loader.instance(className); }
 	bool canCreate(const std::string& className) const { return _loader.canCreate(className); }
 	void destroy(const std::string& className, Base* pObject) const { _loader.destroy(className,pObject); }

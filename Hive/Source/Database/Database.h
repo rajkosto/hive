@@ -31,7 +31,8 @@ class Database : public boost::noncopyable
 public:
 	virtual ~Database() {};
 
-	virtual bool initialise(Poco::Logger& dbLogger, const std::string& infoString, bool logSql = false, const std::string& logDir = "", size_t nConns = 1) = 0;
+	typedef std::map<string,string> KeyValueColl;
+	virtual bool initialise(Poco::Logger& dbLogger, const KeyValueColl& connParams, bool logSql = false, const std::string& logDir = "", size_t nConns = 1) = 0;
 
 	//start worker thread for async DB request execution
 	virtual void initDelayThread() = 0;

@@ -1,12 +1,9 @@
 ﻿
-Microsoft Visual Studio Solution File, Format Version 11.00
-# Visual Studio 2010
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 2012
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Shared", "Shared\Shared.vcxproj", "{92C57338-E848-422B-8E81-6F6D11671750}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Database", "Database\Database.vcxproj", "{E0E04F80-0DB4-4946-B956-4BCA754DAB71}"
-	ProjectSection(ProjectDependencies) = postProject
-		{92C57338-E848-422B-8E81-6F6D11671750} = {92C57338-E848-422B-8E81-6F6D11671750}
-	EndProjectSection
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "HiveExt", "HiveExt\HiveExt.vcxproj", "{2F502C7B-F168-46C0-B239-F9635237959B}"
 	ProjectSection(ProjectDependencies) = postProject
@@ -18,6 +15,12 @@ EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Restarter", "Restarter\Restarter.vcxproj", "{11AFA4C2-C32F-467D-A7C5-D4B629068E2B}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "HiveLib", "HiveLib\HiveLib.vcxproj", "{591D3468-3D70-4D83-B522-BDBD22DC7ADC}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "DB", "DB", "{64A7A09C-C971-4934-9B73-D6FD1741CE70}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DatabaseMySql", "Database\Implementation\DatabaseMySql\DatabaseMySql.vcxproj", "{E6BA8EFD-342A-409B-9273-6463009E5DCA}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DatabasePostgre", "Database\Implementation\DatabasePostgre\DatabasePostgre.vcxproj", "{3A94A40D-418F-4890-829D-7CD16EA1AB6C}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -45,8 +48,25 @@ Global
 		{591D3468-3D70-4D83-B522-BDBD22DC7ADC}.Debug|Win32.Build.0 = Debug|Win32
 		{591D3468-3D70-4D83-B522-BDBD22DC7ADC}.Release|Win32.ActiveCfg = Release|Win32
 		{591D3468-3D70-4D83-B522-BDBD22DC7ADC}.Release|Win32.Build.0 = Release|Win32
+		{E6BA8EFD-342A-409B-9273-6463009E5DCA}.Debug|Win32.ActiveCfg = Debug|Win32
+		{E6BA8EFD-342A-409B-9273-6463009E5DCA}.Debug|Win32.Build.0 = Debug|Win32
+		{E6BA8EFD-342A-409B-9273-6463009E5DCA}.Debug|Win32.Deploy.0 = Debug|Win32
+		{E6BA8EFD-342A-409B-9273-6463009E5DCA}.Release|Win32.ActiveCfg = Release|Win32
+		{E6BA8EFD-342A-409B-9273-6463009E5DCA}.Release|Win32.Build.0 = Release|Win32
+		{E6BA8EFD-342A-409B-9273-6463009E5DCA}.Release|Win32.Deploy.0 = Release|Win32
+		{3A94A40D-418F-4890-829D-7CD16EA1AB6C}.Debug|Win32.ActiveCfg = Debug|Win32
+		{3A94A40D-418F-4890-829D-7CD16EA1AB6C}.Debug|Win32.Build.0 = Debug|Win32
+		{3A94A40D-418F-4890-829D-7CD16EA1AB6C}.Debug|Win32.Deploy.0 = Debug|Win32
+		{3A94A40D-418F-4890-829D-7CD16EA1AB6C}.Release|Win32.ActiveCfg = Release|Win32
+		{3A94A40D-418F-4890-829D-7CD16EA1AB6C}.Release|Win32.Build.0 = Release|Win32
+		{3A94A40D-418F-4890-829D-7CD16EA1AB6C}.Release|Win32.Deploy.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{E0E04F80-0DB4-4946-B956-4BCA754DAB71} = {64A7A09C-C971-4934-9B73-D6FD1741CE70}
+		{E6BA8EFD-342A-409B-9273-6463009E5DCA} = {64A7A09C-C971-4934-9B73-D6FD1741CE70}
+		{3A94A40D-418F-4890-829D-7CD16EA1AB6C} = {64A7A09C-C971-4934-9B73-D6FD1741CE70}
 	EndGlobalSection
 EndGlobal

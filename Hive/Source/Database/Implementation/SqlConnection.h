@@ -67,7 +67,7 @@ public:
 
 	//public methods for making queries
 	virtual unique_ptr<QueryResult> query(const char* sql) = 0;
-	virtual unique_ptr<QueryNamedResult> namedQuery(const char* sql) = 0;
+	virtual unique_ptr<QueryNamedResult> namedQuery(const char* sql);
 
 	//public methods for making requests
 	virtual bool execute(const char* sql) = 0;

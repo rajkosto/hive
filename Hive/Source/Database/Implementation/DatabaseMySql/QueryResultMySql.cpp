@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2009-2012 Rajko Stojadinovic <http://github.com/rajkosto/hive>
+* Copyright (C) 2009-2013 Rajko Stojadinovic <http://github.com/rajkosto/hive>
 *
 * This program is free software; you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -16,18 +16,16 @@
 * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 */
 
-#ifdef MYSQL_ENABLED
+#include "QueryResultMySql.h"
+#include "DatabaseMySql.h"
 
-#include "QueryResultMysql.h"
-#include "DatabaseMysql.h"
-
-QueryResultMysql::QueryResultMysql(MySQLConnection* theConn, const char* sql) : _currRes(-1)
+QueryResultMySql::QueryResultMySql(MySQLConnection* theConn, const char* sql) : _currRes(-1)
 {
 	bool hasAnotherResult = false;
 	MySQLConnection::ResultInfo resInfo;
 	do
 	{
-		hasAnotherResult = theConn->_MySQLStoreResult(sql,resInfo);
+		hasAnotherResult = theConn->_MySQLStoreResult(sql,&resInfo);
 		_results.push_back(std::move(resInfo));
 	} 
 	while (hasAnotherResult);
@@ -36,9 +34,9 @@ QueryResultMysql::QueryResultMysql(MySQLConnection* theConn, const char* sql) : 
 	poco_assert(nextResult() == true);
 }
 
-QueryResultMysql::~QueryResultMysql() {}
+QueryResultMySql::~QueryResultMySql() {}
 
-bool QueryResultMysql::fetchRow()
+bool QueryResultMySql::fetchRow()
 {
 	//if we're outta results, there's also no more rows
 	if (_currRes < 0 || _currRes >= _results.size())
@@ -92,7 +90,7 @@ namespace
 	}
 }
 
-bool QueryResultMysql::nextResult()
+bool QueryResultMySql::nextResult()
 {
 	//is the currently selected result in bounds ? if so, free it
 	if (_currRes >= 0 && _currRes < _results.size())
@@ -133,7 +131,7 @@ bool QueryResultMysql::nextResult()
 	}
 }
 
-QueryFieldNames QueryResultMysql::fetchFieldNames() const
+QueryFieldNames QueryResultMySql::fetchFieldNames() const
 {
 	//if we got no result, can't fetch field names
 	if (_currRes < 0 || _currRes >= _results.size())
@@ -151,5 +149,3 @@ QueryFieldNames QueryResultMysql::fetchFieldNames() const
 
 	return std::move(fieldNames);
 }
-
-#endif

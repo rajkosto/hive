@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2009-2012 Rajko Stojadinovic <http://github.com/rajkosto/hive>
+* Copyright (C) 2009-2013 Rajko Stojadinovic <http://github.com/rajkosto/hive>
 *
 * This program is free software; you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -16,30 +16,25 @@
 * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 */
 
-#ifdef MYSQL_ENABLED
-
-#include "DatabaseMysql.h"
-#include "QueryResultMysql.h"
+#include "DatabaseMySql.h"
+#include "QueryResultMySql.h"
 
 #include <Poco/Logger.h>
 #include <Poco/Format.h>
-#include <Poco/NumberParser.h>
-#include <Poco/String.h>
-#include <Poco/StringTokenizer.h>
 
-size_t DatabaseMysql::db_count = 0;
+size_t DatabaseMySql::db_count = 0;
 
-void DatabaseMysql::threadEnter()
+void DatabaseMySql::threadEnter()
 {
 	mysql_thread_init();
 }
 
-void DatabaseMysql::threadExit()
+void DatabaseMySql::threadExit()
 {
 	mysql_thread_end();
 }
 
-DatabaseMysql::DatabaseMysql()
+DatabaseMySql::DatabaseMySql()
 {
 	// before first connection
 	if (db_count++ == 0)
@@ -52,7 +47,7 @@ DatabaseMysql::DatabaseMysql()
 	}
 }
 
-DatabaseMysql::~DatabaseMysql()
+DatabaseMySql::~DatabaseMySql()
 {
 	stopServer();
 
@@ -62,36 +57,36 @@ DatabaseMysql::~DatabaseMysql()
 }
 
 
-unique_ptr<SqlConnection> DatabaseMysql::createConnection(const std::string& infoString)
+unique_ptr<SqlConnection> DatabaseMySql::createConnection(const KeyValueColl& connParams)
 {
-	return unique_ptr<SqlConnection>(new MySQLConnection(*this,infoString));
+	return unique_ptr<SqlConnection>(new MySQLConnection(*this,connParams));
 }
 
-std::string DatabaseMysql::sqlLike() const 
+std::string DatabaseMySql::sqlLike() const 
 {
 	return "LIKE";
 }
 
-std::string DatabaseMysql::sqlTableSim( const std::string& tableName ) const 
+std::string DatabaseMySql::sqlTableSim( const std::string& tableName ) const 
 {
 	char tempBuf[256];
 	sprintf(tempBuf,"`%s`",tableName.c_str());
 	return string(tempBuf,2+tableName.length());
 }
 
-std::string DatabaseMysql::sqlConcat( const std::string& a, const std::string& b, const std::string& c ) const 
+std::string DatabaseMySql::sqlConcat( const std::string& a, const std::string& b, const std::string& c ) const 
 {
 	char tempBuf[512];
 	sprintf(tempBuf,"CONCAT( %s , %s , %s )",a.c_str(),b.c_str(),c.c_str());
 	return string(tempBuf,16+a.length()+b.length()+c.length());
 }
 
-std::string DatabaseMysql::sqlOffset() const 
+std::string DatabaseMySql::sqlOffset() const 
 {
 	return "LIMIT %d,1";
 }
 
-MySQLConnection::MySQLConnection( ConcreteDatabase& db, const std::string& infoString ) 
+MySQLConnection::MySQLConnection( ConcreteDatabase& db, const Database::KeyValueColl& connParams ) 
 	: SqlConnection(db), _myConn(nullptr)
 {
 	_myHandle = mysql_init(nullptr);
@@ -104,23 +99,21 @@ MySQLConnection::MySQLConnection( ConcreteDatabase& db, const std::string& infoS
 		mysql_options(_myHandle, MYSQL_OPT_RECONNECT, &reconnect);
 	}
 
-	std::string port_or_socket;
+	_host = "localhost";
+	_user = "root";
+	std::string portOrSocket;
+	for (auto it=connParams.cbegin();it!=connParams.cend();++it)
 	{
-		typedef Poco::StringTokenizer Tokens;
-		Tokens tokens(infoString,";",Tokens::TOK_TRIM);
-
-		Tokens::Iterator iter = tokens.begin();
-
-		if(iter != tokens.end())
-			_host = *iter++;
-		if(iter != tokens.end())
-			port_or_socket = *iter++;
-		if(iter != tokens.end())
-			_user = *iter++;
-		if(iter != tokens.end())
-			_password = *iter++;
-		if(iter != tokens.end())
-			_database = *iter++;
+		if (it->first == "host")
+			_host = it->second;
+		else if (it->first == "port")
+			portOrSocket = it->second;
+		else if (it->first == "username")
+			_user = it->second;
+		else if (it->first == "password")
+			_password = it->second;
+		else if (it->first == "database")
+			_database = it->second;
 	}
 
 #ifdef _WIN32
@@ -130,13 +123,11 @@ MySQLConnection::MySQLConnection( ConcreteDatabase& db, const std::string& infoS
 		unsigned int opt = MYSQL_PROTOCOL_PIPE;
 		mysql_options(_myHandle,MYSQL_OPT_PROTOCOL,(char const*)&opt);
 		_port = 0;
-		_unix_socket.clear();
 	}
 	else
-	{
-		_port = atoi(port_or_socket.c_str());
-		_unix_socket.clear();
-	}
+		_port = atoi(portOrSocket.c_str());
+
+	_unixSocket.clear();
 #else
 	//Unix/Linux socket option
 	if(_host==".")
@@ -145,12 +136,12 @@ MySQLConnection::MySQLConnection( ConcreteDatabase& db, const std::string& infoS
 		mysql_options(mysqlInit,MYSQL_OPT_PROTOCOL,(char const*)&opt);
 		_host = "localhost";
 		_port = 0;
-		_unix_socket = port_or_socket;
+		_unixSocket = portOrSocket;
 	}
 	else
 	{
-		_port = atoi(port_or_socket.c_str());
-		_unix_socket.clear();
+		_port = atoi(portOrSocket.c_str());
+		_unixSocket.clear();
 	}
 #endif
 }
@@ -247,10 +238,14 @@ void MySQLConnection::connect()
 	for(;;)
 	{
 		const char* unix_socket = nullptr;
-		if (_unix_socket.length() > 0)
-			unix_socket = _unix_socket.c_str();
+		if (_unixSocket.length() > 0)
+			unix_socket = _unixSocket.c_str();
 
-		_myConn = mysql_real_connect(_myHandle, _host.c_str(), _user.c_str(), _password.c_str(), _database.c_str(), 
+		const char* password = nullptr;
+		if (_password.length() > 0)
+			password = _password.c_str();
+
+		_myConn = mysql_real_connect(_myHandle, _host.c_str(), _user.c_str(), password, _database.c_str(), 
 			_port, unix_socket, CLIENT_REMEMBER_OPTIONS | CLIENT_MULTI_RESULTS);
 		if (!_myConn)
 		{
@@ -337,7 +332,7 @@ bool MySQLConnection::_Query(const char* sql)
 	return true;
 }
 
-bool MySQLConnection::_MySQLStoreResult(const char* sql, ResultInfo& outResInfo)
+bool MySQLConnection::_MySQLStoreResult(const char* sql, ResultInfo* outResInfo)
 {
 	MYSQL_RES* outResult = mysql_store_result(_myConn);
 	UInt64 outRowCount = 0;
@@ -359,9 +354,18 @@ bool MySQLConnection::_MySQLStoreResult(const char* sql, ResultInfo& outResInfo)
 			throw SqlException(resultRetVal,mysql_error(_myConn),"MySQLStoreResult",IsConnectionLost(resultRetVal),true,sql);
 	}
 
-	outResInfo.myRes = outResult;
-	outResInfo.numFields = outFieldCount;
-	outResInfo.numRows = outRowCount;
+	if (outResInfo != nullptr)
+	{
+		outResInfo->myRes = outResult;
+		outResInfo->numFields = outFieldCount;
+		outResInfo->numRows = outRowCount;
+	}
+	else
+	{
+		mysql_free_result(outResult);
+		outResult = nullptr;
+	}
+
 
 	int moreResults = mysql_next_result(_myConn);
 	if (moreResults == 0)
@@ -387,39 +391,35 @@ unique_ptr<QueryResult> MySQLConnection::query(const char* sql)
 		return nullptr;
 
 	//it will fetch the results in the constructor
-	unique_ptr<QueryResult> queryResult(new QueryResultMysql(this,sql));
+	unique_ptr<QueryResult> queryResult(new QueryResultMySql(this,sql));
 	return queryResult;
-}
-
-unique_ptr<QueryNamedResult> MySQLConnection::namedQuery(const char* sql)
-{
-	if(!_Query(sql))
-		return nullptr;
-
-	//it will fetch the results in the constructor	
-	unique_ptr<QueryResult> queryResult(new QueryResultMysql(this,sql));
-	//fetches the field names in it's constructor, and wraps nextResult to keep them updated
-	return unique_ptr<QueryNamedResult>(new QueryNamedResult(std::move(queryResult)));
 }
 
 bool MySQLConnection::execute(const char* sql)
 {
-	return _Query(sql);
+	bool qryRes = _Query(sql);
+	if (!qryRes)
+		return false;
+
+	//eat up results if any
+	while (_MySQLStoreResult(sql) == true) {}
+
+	return true;
 }
 
 bool MySQLConnection::transactionStart()
 {
-	return _Query("START TRANSACTION");
+	return execute("START TRANSACTION");
 }
 
 bool MySQLConnection::transactionCommit()
 {
-	return _Query("COMMIT");
+	return execute("COMMIT");
 }
 
 bool MySQLConnection::transactionRollback()
 {
-	return _Query("ROLLBACK");
+	return execute("ROLLBACK");
 }
 
 size_t MySQLConnection::escapeString(char* to, const char* from, size_t length) const
@@ -730,5 +730,3 @@ bool MySqlPreparedStatement::execute()
 
 	return true;
 }
-
-#endif

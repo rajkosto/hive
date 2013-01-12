@@ -9,12 +9,6 @@
     <ClInclude Include="Implementation\ConcreteDatabase.h">
       <Filter>Implementation</Filter>
     </ClInclude>
-    <ClInclude Include="Implementation\DatabaseMysql.h">
-      <Filter>Implementation</Filter>
-    </ClInclude>
-    <ClInclude Include="Implementation\QueryResultMysql.h">
-      <Filter>Implementation</Filter>
-    </ClInclude>
     <ClInclude Include="Implementation\SqlConnection.h">
       <Filter>Implementation</Filter>
     </ClInclude>
@@ -30,7 +24,6 @@
     <ClInclude Include="Implementation\SqlStatementImpl.h">
       <Filter>Implementation</Filter>
     </ClInclude>
-    <ClInclude Include="resource.h" />
     <ClInclude Include="Implementation\RetrySqlOp.h">
       <Filter>Implementation</Filter>
     </ClInclude>
@@ -45,12 +38,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Implementation\ConcreteDatabase.cpp">
-      <Filter>Implementation</Filter>
-    </ClCompile>
-    <ClCompile Include="Implementation\DatabaseMysql.cpp">
-      <Filter>Implementation</Filter>
-    </ClCompile>
-    <ClCompile Include="Implementation\QueryResultMysql.cpp">
       <Filter>Implementation</Filter>
     </ClCompile>
     <ClCompile Include="Implementation\SqlConnection.cpp">
@@ -68,9 +55,5 @@
     <ClCompile Include="Implementation\SqlStatementImpl.cpp">
       <Filter>Implementation</Filter>
     </ClCompile>
-    <ClCompile Include="Manifest.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <ResourceCompile Include="Resource.rc" />
   </ItemGroup>
 </Project>

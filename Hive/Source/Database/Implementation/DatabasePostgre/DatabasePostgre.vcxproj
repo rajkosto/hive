@@ -11,51 +11,36 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Callback.h" />
-    <ClInclude Include="Database.h" />
-    <ClInclude Include="Field.h" />
-    <ClInclude Include="Implementation\ConcreteDatabase.h" />
-    <ClInclude Include="Implementation\QueryResultImpl.h" />
-    <ClInclude Include="Implementation\RetrySqlOp.h" />
-    <ClInclude Include="Implementation\SqlConnection.h" />
-    <ClInclude Include="Implementation\SqlDelayThread.h" />
-    <ClInclude Include="Implementation\SqlOperations.h" />
-    <ClInclude Include="Implementation\SqlPreparedStatement.h" />
-    <ClInclude Include="Implementation\SqlStatementImpl.h" />
-    <ClInclude Include="QueryResult.h" />
-    <ClInclude Include="SqlStatement.h" />
+    <ClInclude Include="DatabasePostgre.h" />
+    <ClInclude Include="QueryResultPostgre.h" />
+    <ClInclude Include="resource.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Implementation\ConcreteDatabase.cpp" />
-    <ClCompile Include="Implementation\SqlConnection.cpp" />
-    <ClCompile Include="Implementation\SqlDelayThread.cpp" />
-    <ClCompile Include="Implementation\SqlOperations.cpp" />
-    <ClCompile Include="Implementation\SqlPreparedStatement.cpp" />
-    <ClCompile Include="Implementation\SqlStatementImpl.cpp" />
+    <ClCompile Include="DatabasePostgre.cpp" />
+    <ClCompile Include="Manifest.cpp" />
+    <ClCompile Include="QueryResultPostgre.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Shared\Shared.vcxproj">
-      <Project>{92c57338-e848-422b-8e81-6f6d11671750}</Project>
-      <Private>true</Private>
-      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
-      <CopyLocalSatelliteAssemblies>false</CopyLocalSatelliteAssemblies>
-      <LinkLibraryDependencies>true</LinkLibraryDependencies>
-      <UseLibraryDependencyInputs>false</UseLibraryDependencyInputs>
+    <ResourceCompile Include="Resource.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\Database.vcxproj">
+      <Project>{e0e04f80-0db4-4946-b956-4bca754dab71}</Project>
     </ProjectReference>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectGuid>{E0E04F80-0DB4-4946-B956-4BCA754DAB71}</ProjectGuid>
+    <ProjectGuid>{3A94A40D-418F-4890-829D-7CD16EA1AB6C}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
-    <RootNamespace>Database</RootNamespace>
+    <RootNamespace>DatabasePostgre</RootNamespace>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
-    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
-    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
@@ -65,15 +50,15 @@
   </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
-    <Import Project="..\StaticLib.Debug.props" />
-    <Import Project="..\Poco.props" />
-    <Import Project="..\TBB.props" />
+    <Import Project="$(SolutionDir)DynamicLib.Debug.props" />
+    <Import Project="$(SolutionDir)Poco.props" />
+    <Import Project="$(SolutionDir)TBB.props" />
   </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
-    <Import Project="..\StaticLib.Release.props" />
-    <Import Project="..\Poco.props" />
-    <Import Project="..\TBB.props" />
+    <Import Project="$(SolutionDir)DynamicLib.Release.props" />
+    <Import Project="$(SolutionDir)Poco.props" />
+    <Import Project="$(SolutionDir)TBB.props" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -88,15 +73,15 @@
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>DATABASE_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>DATABASEPOSTGRE_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)..\..\Dependencies10\PostgreSQL\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(SolutionDir)..\..\Dependencies10\MySQL\lib\x86\debug;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>mysqlclient.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(SolutionDir)..\..\Dependencies10\PostgreSQL\lib\x86\debug;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>pqclient.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent />
     <PostBuildEvent />
@@ -111,17 +96,17 @@
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>DATABASE_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>DATABASEPOSTGRE_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)..\..\Dependencies10\PostgreSQL\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalLibraryDirectories>$(SolutionDir)..\..\Dependencies10\MySQL\lib\x86\release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>mysqlclient.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(SolutionDir)..\..\Dependencies10\PostgreSQL\lib\x86\release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>pqclient.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent />
     <PostBuildEvent />

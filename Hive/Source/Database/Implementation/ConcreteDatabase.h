@@ -38,7 +38,7 @@ class ConcreteDatabase : public Database
 public:
 	virtual ~ConcreteDatabase();
 
-	bool initialise(Poco::Logger& dbLogger, const std::string& infoString, bool logSql, const std::string& logDir, size_t nConns) override;
+	bool initialise(Poco::Logger& dbLogger, const KeyValueColl& connParams, bool logSql, const std::string& logDir, size_t nConns) override;
 	
 	void initDelayThread() override;
 	void haltDelayThread() override;
@@ -92,7 +92,7 @@ protected:
 	void stopServer();
 
 	//factory method to create SqlConnection objects
-	virtual unique_ptr<SqlConnection> createConnection(const std::string& infoString) = 0;
+	virtual unique_ptr<SqlConnection> createConnection(const KeyValueColl& connParams) = 0;
 	//factory method to create SqlDelayThread objects
 	virtual unique_ptr<SqlDelayThread> createDelayThread();
 

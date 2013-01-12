@@ -1,0 +1,25 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClInclude Include="resource.h">
+      <Filter>Resource</Filter>
+    </ClInclude>
+    <ClInclude Include="DatabasePostgre.h" />
+    <ClInclude Include="QueryResultPostgre.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Manifest.cpp" />
+    <ClCompile Include="DatabasePostgre.cpp" />
+    <ClCompile Include="QueryResultPostgre.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Resource">
+      <UniqueIdentifier>{A2A36450-1171-4A55-9502-6978E46BB5FC}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="Resource.rc">
+      <Filter>Resource</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+</Project>
