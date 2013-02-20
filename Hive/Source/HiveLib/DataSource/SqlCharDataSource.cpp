@@ -22,6 +22,7 @@
 #include <boost/lexical_cast.hpp>
 using boost::lexical_cast;
 using boost::bad_lexical_cast;
+#include <boost/algorithm/string/predicate.hpp>
 
 SqlCharDataSource::SqlCharDataSource( Poco::Logger& logger, shared_ptr<Database> db, const string& idFieldName, const string& wsFieldName ) : SqlDataSource(logger,db)
 {
@@ -33,192 +34,142 @@ SqlCharDataSource::~SqlCharDataSource() {}
 
 Sqf::Value SqlCharDataSource::fetchCharacterInitial( string playerId, int serverId, const string& playerName )
 {
-	bool newPlayer = false;
-	//make sure player exists in db
-	{
-		auto playerRes(getDB()->queryParams(("SELECT `PlayerName`, `PlayerSex` FROM `Player_DATA` WHERE `"+_idFieldName+"`='%s'").c_str(), getDB()->escape(playerId).c_str()));
-		if (playerRes && playerRes->fetchRow())
-		{
-			newPlayer = false;
-			//update player name if not current
-			if (playerRes->at(0).getString() != playerName)
-			{
-				auto stmt = getDB()->makeStatement(_stmtChangePlayerName, "UPDATE `Player_DATA` SET `PlayerName`=? WHERE `"+_idFieldName+"`=?");
-				stmt->addString(playerName);
-				stmt->addString(playerId);
-				bool exRes = stmt->execute();
-				poco_assert(exRes == true);
-				_logger.information("Changed name of player " + playerId + " from '" + playerRes->at(0).getString() + "' to '" + playerName + "'");
-			}
-		}
-		else
-		{
-			newPlayer = true;
-			//insert new player into db
-			auto stmt = getDB()->makeStatement(_stmtInsertPlayer, "INSERT INTO `Player_DATA` (`"+_idFieldName+"`, `PlayerName`) VALUES (?, ?)");
-			stmt->addString(playerId);
-			stmt->addString(playerName);
-			bool exRes = stmt->execute();
-			poco_assert(exRes == true);
-			_logger.information("Created a new player " + playerId + " named '" + playerName + "'");
-		}
-	}
-
-	//get characters from db
-	auto charsRes = getDB()->queryParams(
-		("SELECT `CharacterID`, `"+_wsFieldName+"`, `Inventory`, `Backpack`, "
-		"TIMESTAMPDIFF(MINUTE,`Datestamp`,`LastLogin`) as `SurvivalTime`, "
-		"TIMESTAMPDIFF(MINUTE,`LastAte`,NOW()) as `MinsLastAte`, "
-		"TIMESTAMPDIFF(MINUTE,`LastDrank`,NOW()) as `MinsLastDrank`, "
-		"`Model` FROM `Character_DATA` WHERE `"+_idFieldName+"` = '%s' AND `Alive` = 1 ORDER BY `CharacterID` DESC LIMIT 1").c_str(), getDB()->escape(playerId).c_str());
-
-	bool newChar = false; //not a new char
-	int characterId = -1; //invalid charid
-	Sqf::Value worldSpace = Sqf::Parameters(); //empty worldspace
-	Sqf::Value inventory = lexical_cast<Sqf::Value>("[]"); //empty inventory
-	Sqf::Value backpack = lexical_cast<Sqf::Value>("[]"); //empty backpack
-	Sqf::Value survival = lexical_cast<Sqf::Value>("[0,0,0]"); //0 mins alive, 0 mins since last ate, 0 mins since last drank
-	string model = ""; //empty models will be defaulted by scripts
-	if (charsRes && charsRes->fetchRow())
-	{
-		newChar = false;
-		characterId = charsRes->at(0).getInt32();
-		try
-		{
-			worldSpace = lexical_cast<Sqf::Value>(charsRes->at(1).getString());
-		}
-		catch(bad_lexical_cast)
-		{
-			_logger.warning("Invalid Worldspace for CharacterID("+lexical_cast<string>(characterId)+"): "+charsRes->at(1).getString());
-		}
-		if (!charsRes->at(2).isNull()) //inventory can be null
-		{
-			try
-			{
-				inventory = lexical_cast<Sqf::Value>(charsRes->at(2).getString());
-				try { SanitiseInv(boost::get<Sqf::Parameters>(inventory)); } catch (const boost::bad_get&) {}
-			}
-			catch(bad_lexical_cast)
-			{
-				_logger.warning("Invalid Inventory for CharacterID("+lexical_cast<string>(characterId)+"): "+charsRes->at(2).getString());
-			}
-		}		
-		if (!charsRes->at(3).isNull()) //backpack can be null
-		{
-			try
-			{
-				backpack = lexical_cast<Sqf::Value>(charsRes->at(3).getString());
-			}
-			catch(bad_lexical_cast)
-			{
-				_logger.warning("Invalid Backpack for CharacterID("+lexical_cast<string>(characterId)+"): "+charsRes->at(3).getString());
-			}
-		}
-		//set survival info
-		{
-			Sqf::Parameters& survivalArr = boost::get<Sqf::Parameters>(survival);
-			survivalArr[0] = charsRes->at(4).getInt32();
-			survivalArr[1] = charsRes->at(5).getInt32();
-			survivalArr[2] = charsRes->at(6).getInt32();
-		}
-		try
-		{
-			model = boost::get<string>(lexical_cast<Sqf::Value>(charsRes->at(7).getString()));
-		}
-		catch(...)
-		{
-			model = charsRes->at(7).getString();
-		}
-
-		//update last login
-		{
-			//update last character login
-			auto stmt = getDB()->makeStatement(_stmtUpdateCharacterLastLogin, "UPDATE `Character_DATA` SET `LastLogin` = CURRENT_TIMESTAMP WHERE `CharacterID` = ?");
-			stmt->addInt32(characterId);
-			bool exRes = stmt->execute();
-			poco_assert(exRes == true);
-		}
-	}
-	else //inserting new character
-	{
-		newChar = true;
-
-		int generation = 1;
-		int humanity = 2500;
-		//try getting previous character info
-		{
-			auto prevCharRes = getDB()->queryParams(
-				("SELECT `Generation`, `Humanity`, `Model` FROM `Character_DATA` WHERE `"+_idFieldName+"` = '%s' AND `Alive` = 0 ORDER BY `CharacterID` DESC LIMIT 1").c_str(), getDB()->escape(playerId).c_str());
-			if (prevCharRes && prevCharRes->fetchRow())
-			{
-				generation = prevCharRes->at(0).getInt32();
-				generation++; //apparently this was the correct behaviour all along
-
-				humanity = prevCharRes->at(1).getInt32();
-				try
-				{
-					model = boost::get<string>(lexical_cast<Sqf::Value>(prevCharRes->at(2).getString()));
-				}
-				catch(...)
-				{
-					model = prevCharRes->at(2).getString();
-				}
-			}
-		}
-		Sqf::Value medical = Sqf::Parameters(); //script will fill this in if empty
-		//insert new char into db
-		{
-			auto stmt = getDB()->makeStatement(_stmtInsertNewCharacter, 
-				"INSERT INTO `Character_DATA` (`"+_idFieldName+"`, `InstanceID`, `"+_wsFieldName+"`, `Inventory`, `Backpack`, `Medical`, `Generation`, `Datestamp`, `LastLogin`, `LastAte`, `LastDrank`, `Humanity`) "
-				"VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)");
-			stmt->addString(playerId);
-			stmt->addInt32(serverId);
-			stmt->addString(lexical_cast<string>(worldSpace));
-			stmt->addString(lexical_cast<string>(inventory));
-			stmt->addString(lexical_cast<string>(backpack));
-			stmt->addString(lexical_cast<string>(medical));
-			stmt->addInt32(generation);
-			stmt->addInt32(humanity);
-			bool exRes = stmt->directExecute(); //need sync as we will be getting the CharacterID right after this
-			if (exRes == false)
-			{
-				_logger.error("Error creating character for playerId " + playerId);
-				Sqf::Parameters retVal;
-				retVal.push_back(string("ERROR"));
-				return retVal;
-			}
-		}
-		//get the new character's id
-		{
-			auto newCharRes = getDB()->queryParams(
-				("SELECT `CharacterID` FROM `Character_DATA` WHERE `"+_idFieldName+"` = '%s' AND `Alive` = 1 ORDER BY `CharacterID` DESC LIMIT 1").c_str(), getDB()->escape(playerId).c_str());
-			if (!newCharRes || !newCharRes->fetchRow())
-			{
-				_logger.error("Error fetching created character for playerId " + playerId);
-				Sqf::Parameters retVal;
-				retVal.push_back(string("ERROR"));
-				return retVal;
-			}
-			characterId = newCharRes->at(0).getInt32();
-		}
-		_logger.information("Created a new character " + lexical_cast<string>(characterId) + " for player '" + playerName + "' (" + playerId + ")" );
-	}
-
 	Sqf::Parameters retVal;
-	retVal.push_back(string("PASS"));
-	retVal.push_back(newPlayer);
-	retVal.push_back(lexical_cast<string>(characterId));
-	if (!newChar)
+	
+	auto playerResPtr(getDB()->namedQueryParams("CALL LoadCharacter(%d,0,'%s','%s')",serverId,getDB()->escape(playerId).c_str(),getDB()->escape(playerName).c_str()));
+	if (playerResPtr && playerResPtr->fetchRow())
 	{
-		retVal.push_back(worldSpace);
-		retVal.push_back(inventory);
-		retVal.push_back(backpack);
-		retVal.push_back(survival);
-	}
-	retVal.push_back(model);
-	//hive interface version
-	retVal.push_back(0.96f);
+		auto& res = *playerResPtr;
 
+		const string playerStatus = res["PlayerStatus"].getString();
+		{
+			
+			if (playerStatus == "ERROR")
+			{
+				_logger.error("Unable to set/fetch player info for UID '"+playerId+"' Name: '"+playerName+"'");
+				retVal.push_back(string("ERROR"));
+				retVal.push_back(string("Player"));
+				return retVal;
+			}
+			else if (playerStatus == "NEW")
+				_logger.information("Created a new player " + playerId + " named '"+playerName+"'");
+			else if (playerStatus == "CHNAME")
+				_logger.information("Changed name of player " + playerId + " from '"+res["OldName"].getString()+"' to '"+playerName+"'");
+			else if (playerStatus == "EXIST") {}
+			else
+				_logger.warning("Received unknown PlayerStatus '"+playerStatus+"' for UID '"+playerId+"' Name: '"+playerName+"'");
+		}
+
+		const string charStatus = res["CharacterStatus"].getString();
+		{			
+			if (charStatus == "ERROR")
+			{
+				_logger.error("Unable to create/fetch character info for UID '"+playerId+"' Name: '"+playerName+"'");
+				retVal.push_back(string("ERROR"));
+				retVal.push_back(string("Character"));
+				return retVal;
+			}
+			else if (charStatus == "NEW1ST" || charStatus == "NEWFROM")
+			{
+				string logStr = "Created a new character " + res["CharacterID"].getString() + " for player '"+playerName+"' (" + playerId + ")";
+				if (charStatus == "NEW1ST")
+					logStr += " from scratch";
+				else
+					logStr += " from existing character";
+
+				_logger.information(logStr);
+			}
+			else if (charStatus == "EXIST") {}
+			else
+				_logger.warning("Received unknown CharacterStatus '"+charStatus+"' for UID '"+playerId+"' Name: '"+playerName+"'");
+		}
+
+		bool newPlayer = boost::icontains(playerStatus,"new");
+		bool newChar = boost::icontains(charStatus,"new");
+		UInt32 charId = res["CharacterID"].getUInt32();
+
+		if (res.nextResult() && res.fetchRow())
+		{
+			Sqf::Value worldSpace = Sqf::Parameters(); //empty worldspace
+			Sqf::Value inventory = Sqf::Parameters(); //empty inventory
+			Sqf::Value backpack = Sqf::Parameters(); //empty backpack
+			Sqf::Value survival = lexical_cast<Sqf::Value>("[0,0,0]"); //0 mins alive, 0 mins since last ate, 0 mins since last drank
+			if (!newChar)
+			{
+				if (!res["Worldspace"].isNull())
+				{
+					const string wsStr = res["Worldspace"].getString();
+					try { worldSpace = lexical_cast<Sqf::Value>(wsStr); }
+					catch(const bad_lexical_cast&)
+					{
+						_logger.warning("Invalid Worldspace for CharacterID("+lexical_cast<string>(charId)+"): "+wsStr);
+					}
+				}
+
+				if (!res["Inventory"].isNull()) //inventory can be null
+				{
+					const string invStr = res["Inventory"].getString();
+					try
+					{
+						inventory = lexical_cast<Sqf::Value>(invStr);
+						try { SanitiseInv(boost::get<Sqf::Parameters>(inventory)); } catch (const boost::bad_get&) {}
+					}
+					catch(const bad_lexical_cast&)
+					{
+						_logger.warning("Invalid Inventory for CharacterID("+lexical_cast<string>(charId)+"): "+invStr);
+					}
+				}	
+
+				if (!res["Backpack"].isNull()) //backpack can be null
+				{
+					const string backStr = res["Backpack"].getString();
+					try { backpack = lexical_cast<Sqf::Value>(backStr); }
+					catch(bad_lexical_cast)
+					{
+						_logger.warning("Invalid Backpack for CharacterID("+lexical_cast<string>(charId)+"): "+backStr);
+					}
+				}
+
+				//set survival info
+				{
+					auto& survivalArr = boost::get<Sqf::Parameters>(survival);
+					survivalArr[0] = res["SurvivalTime"].getInt32();
+					survivalArr[1] = res["MinsLastAte"].getInt32();
+					survivalArr[2] = res["MinsLastDrank"].getInt32();
+				}
+			}			
+
+			string model = ""; //empty models will be defaulted by scripts
+			try
+			{
+				//remove quotes from string and such, if present
+				model = boost::get<string>(lexical_cast<Sqf::Value>(res["Model"].getString()));
+			}
+			catch(...)
+			{
+				model = res["Model"].getString();
+			}
+
+			retVal.push_back(string("PASS"));
+			retVal.push_back(newPlayer);
+			retVal.push_back(lexical_cast<string>(charId));
+			if (!newChar)
+			{
+				retVal.push_back(worldSpace);
+				retVal.push_back(inventory);
+				retVal.push_back(backpack);
+				retVal.push_back(survival);
+			}
+			retVal.push_back(model);
+			//hive interface version
+			retVal.push_back(0.96f);
+			return retVal;
+		}
+	}
+
+	//if we got here, that means we failed to fetch some result or row
+	retVal.push_back(string("ERROR"));
+	retVal.push_back(string("Database"));
 	return retVal;
 }
 
