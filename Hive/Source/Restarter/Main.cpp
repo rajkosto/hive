@@ -66,11 +66,17 @@ private:
 	mutable boost::mutex _runningCS;
 	bool _running;
 
+
 	bool getRunning() const { boost::mutex::scoped_lock lck(_runningCS); return _running;}
 	void setRunning(bool isRunning) { boost::mutex::scoped_lock lck(_runningCS); _running = isRunning; }
 
 	UInt32 _faults;
 	mutable boost::mutex _faultsCS;
+
+	fs::path arma3Path;
+	fs::path arma3dediPath;
+	fs::path arma2Path;
+	fs::path arma2BetaPath;
 
 	UInt32 getFaults() const { boost::mutex::scoped_lock lck(_faultsCS); return _faults; }
 	void setFaulted(int serverNum) { boost::mutex::scoped_lock lck(_faultsCS); _faults |= (1 << serverNum); }
@@ -144,9 +150,9 @@ private:
 		}
 
 		vector<const char*> moveFiles;
-		moveFiles.push_back("arma2oaserver.RPT");
-		moveFiles.push_back("arma2oaserver.bidmp");
-		moveFiles.push_back("arma2oaserver.mdmp");
+		moveFiles.push_back("armaserver.RPT");
+		moveFiles.push_back("armaserver.bidmp");
+		moveFiles.push_back("armaserver.mdmp");
 		moveFiles.push_back("server_console.log");
 		moveFiles.push_back("HiveExt.log");
 
@@ -297,10 +303,12 @@ protected:
 			startParams.push_back("-beta=Expansion\\beta;Expansion\\beta\\Expansion");
 
 		startParams.push_back("-nosplash");
+		startParams.push_back("-nosound");
 
 		_path.lock();
 		fs::path profileFolder = serverName;
 		_path.unlock();
+		string servertype;
 		try
 		{
 			try	
@@ -342,6 +350,36 @@ protected:
 				startParams.push_back("-exThreads="+lexical_cast<string>(exThreads));
 			}
 			catch (Poco::NotFoundException) {}
+			
+			try
+			{
+				servertype = escapeQuotes(conf->getString("server"));
+				startParams.push_back("-"+servertype);
+			}
+			catch (Poco::NotFoundException)	{}
+
+			try
+			{
+				string connectserverip = escapeQuotes(conf->getString("connectip"));
+				startParams.push_back("-connect="+connectserverip);
+			}
+			catch (Poco::NotFoundException)	{}
+
+
+			try
+			{
+				string serverpassword = escapeQuotes(conf->getString("password"));
+				startParams.push_back("-password="+serverpassword);
+			}
+			catch (Poco::NotFoundException)	{}
+
+			try
+			{
+				string connectserverport = escapeQuotes(conf->getString("connectport"));
+				startParams.push_back("-port="+connectserverport);
+			}
+			catch (Poco::NotFoundException)	{}
+
 
 			serverName = conf->getString("name",serverName);
 			startParams.push_back("-name="+serverName);
@@ -351,60 +389,80 @@ protected:
 			if (!fs::exists(profileFolder)) fs::create_directories(profileFolder);
 
 			//set up basic.cfg loc
-			try
+			if (servertype == "server")
 			{
-				fs::path basicLoc = trimPathCopy(conf->getString("cfg"));
-				if (!fs::exists(basicLoc))
-				{
-					boost::mutex::scoped_lock lck(_out);
-					std::cerr << serverName << ": Invalid basic.cfg location: " << basicLoc.string() << std::endl;
-					throw Poco::SyntaxException();
-				}
-				startParams.push_back("-cfg="+basicLoc.string());
-			}
-			catch (Poco::NotFoundException)
-			{
-				fs::path basicLoc = profileFolder/"arma2.cfg";
-				if (!fs::exists(basicLoc))
-				{
-					basicLoc = profileFolder/"basic.cfg";
-					if (!fs::exists(basicLoc))
+					try
 					{
-						basicLoc = profileFolder/"arma2oa.cfg";
+						fs::path basicLoc = trimPathCopy(conf->getString("cfg"));
 						if (!fs::exists(basicLoc))
 						{
 							boost::mutex::scoped_lock lck(_out);
-							std::cerr << serverName << ": No basic.cfg location specified and couldn't find defaults." << std::endl;
+							std::cerr << serverName << ": Invalid basic.cfg location: " << basicLoc.string() << std::endl;
 							throw Poco::SyntaxException();
 						}
+						startParams.push_back("-cfg="+basicLoc.string());
 					}
-				}
-				startParams.push_back("-cfg="+basicLoc.string());
+					catch (Poco::NotFoundException)
+					{
+				
+							fs::path basicLoc = profileFolder/"arma2.cfg";
+							if (!fs::exists(basicLoc))
+							{
+								basicLoc = profileFolder/"basic.cfg";
+								if (!fs::exists(basicLoc))
+								{
+									basicLoc = profileFolder/"arma2oa.cfg";
+									if (!fs::exists(basicLoc))
+									{
+										boost::mutex::scoped_lock lck(_out);
+										std::cerr << serverName << ": No basic.cfg location specified and couldn't find defaults." << std::endl;
+										throw Poco::SyntaxException();
+									}
+								}
+							}
+							startParams.push_back("-cfg="+basicLoc.string());
+				
+					}
 			}
-
 			//set up server.cfg loc
+			if (servertype == "server")
+			{
+				try
+				{
+					fs::path configLoc = trimPathCopy(conf->getString("config"));
+					if (!fs::exists(configLoc))
+					{
+						boost::mutex::scoped_lock lck(_out);
+						std::cerr << serverName << ": Invalid server.cfg location: " << configLoc.string() << std::endl;
+						throw Poco::SyntaxException();
+					}
+					startParams.push_back("-config="+configLoc.string());
+				}
+				catch (Poco::NotFoundException)
+				{
+					fs::path configLoc = profileFolder/"server.cfg";
+					if (!fs::exists(configLoc))
+					{
+						boost::mutex::scoped_lock lck(_out);
+						std::cerr << serverName << ": No server.cfg location specified and couldn't find defaults." << std::endl;
+						throw Poco::SyntaxException();
+					}
+					startParams.push_back("-config="+configLoc.string());
+				}
+			}
+			
+			
 			try
 			{
-				fs::path configLoc = trimPathCopy(conf->getString("config"));
-				if (!fs::exists(configLoc))
+				bool netlog = conf->getBool("netlog");
+				if (netlog == true) 
 				{
-					boost::mutex::scoped_lock lck(_out);
-					std::cerr << serverName << ": Invalid server.cfg location: " << configLoc.string() << std::endl;
-					throw Poco::SyntaxException();
+					startParams.push_back("-"+netlog);
 				}
-				startParams.push_back("-config="+configLoc.string());
+				
 			}
-			catch (Poco::NotFoundException)
-			{
-				fs::path configLoc = profileFolder/"server.cfg";
-				if (!fs::exists(configLoc))
-				{
-					boost::mutex::scoped_lock lck(_out);
-					std::cerr << serverName << ": No server.cfg location specified and couldn't find defaults." << std::endl;
-					throw Poco::SyntaxException();
-				}
-				startParams.push_back("-config="+configLoc.string());
-			}
+			catch (Poco::NotFoundException)	{}
+
 
 			try
 			{
@@ -417,6 +475,32 @@ protected:
 			{
 				string world = escapeQuotes(conf->getString("world"));
 				startParams.push_back("-world="+world);
+			}
+			catch (Poco::NotFoundException)	{}
+
+			if (servertype == "server")
+			{
+				try
+				{
+					string rankingfile = escapeQuotes(conf->getString("rankingfile"));
+					startParams.push_back("-ranking="+rankingfile);
+				}
+				catch (Poco::NotFoundException)	{}
+			}
+
+			try
+			{
+				bool filepatching = conf->getBool("filepatching");
+				if (filepatching == true){
+				startParams.push_back("-noFilePatching ");
+				}
+			}
+			catch (Poco::NotFoundException)	{}
+
+			try
+			{
+				string initsystem = escapeQuotes(conf->getString("initthis"));
+				startParams.push_back("-init="+initsystem);
 			}
 			catch (Poco::NotFoundException)	{}
 
@@ -445,8 +529,21 @@ protected:
 		while (getRunning())
 		{
 			std::wstring appName;
-			Poco::UnicodeConverter::toUTF16(_srvPath,appName);
-			std::wstring appParams;
+
+			if (servertype != "server")
+			{
+				if (std::wstring::npos == appName.find(L"arma3server.exe"))
+				{
+					_srvPath = boost::filesystem::canonical(arma3Path).string();
+				}
+				else if (std::wstring::npos == appName.find(L"arma2oaserver.exe"))
+				{
+					_srvPath = boost::filesystem::canonical(arma2Path).string();
+				}
+			}
+			
+				Poco::UnicodeConverter::toUTF16(_srvPath,appName);
+				std::wstring appParams;
 			{
 				std::stringstream paramsStr;
 				for(auto it=startParams.begin();it!=startParams.end();++it)
@@ -544,25 +641,47 @@ protected:
 		int versionNum = -5;
 		if (_srvPath.length() < 1)
 		{
-			string exeName = "arma2oaserver.exe";
-			fs::path retailPath = Poco::Path::current();
-			fs::path betaPath = retailPath/"Expansion"/"beta";
-			retailPath = retailPath/exeName;
-			betaPath = betaPath/exeName;
+			string arma3ExeName = "arma3.exe";
+			string arma3DediName = "arma3server.exe";
+			string arma2ExeName = "arma2oa.exe";
+			string arma2DediName = "arma2oaserver.exe";
 
-			if (fs::exists(betaPath) && (versionNum=getBuildNum(betaPath.string())) > 0)
+			arma3Path = Poco::Path::current();
+			arma3dediPath = Poco::Path::current();
+			arma2Path = Poco::Path::current();
+			arma2BetaPath = arma2Path/"Expansion"/"beta";
+
+			arma3Path = arma3Path/arma3ExeName;
+			arma3dediPath = arma3dediPath/arma3DediName;
+			arma2Path = arma2Path/arma2ExeName;
+			arma2BetaPath = arma2BetaPath/arma2DediName;
+			int dediServer = 0;
+
+			if (fs::exists(arma2BetaPath) && (versionNum=getBuildNum(arma2BetaPath.string())) > 0)
 			{
+				dediServer = 1;
 				_betaSrv = true;
-				_srvPath = betaPath.string();
+				_srvPath = arma2BetaPath.string();
 			}
-			else if (fs::exists(retailPath) && (versionNum=getBuildNum(retailPath.string())) > 0)
+			else if (fs::exists(arma3dediPath) && (versionNum=getBuildNum(arma3dediPath.string())) > 0)
+			{
+				dediServer = 1;
+				_betaSrv = false;
+				_srvPath = arma3dediPath.string();
+			}
+			else if (fs::exists(arma3Path) && (versionNum=getBuildNum(arma3Path.string())) > 0 && (dediServer == 0) )
 			{
 				_betaSrv = false;
-				_srvPath = retailPath.string();
+				_srvPath = arma3Path.string();
+			}
+			else if (fs::exists(arma2Path) && (versionNum=getBuildNum(arma2Path.string())) > 0 && (dediServer == 0) )
+			{
+				_betaSrv = false;
+				_srvPath = arma2Path.string();
 			}
 			else
 			{
-				std::cerr << "Couldn't locate " << exeName << " anywhere!" << std::endl;
+				std::cerr << "Couldn't locate a Arma 2 or 3 EXE anywhere!" << std::endl;
 				return EXIT_NOINPUT;
 			}
 		}
