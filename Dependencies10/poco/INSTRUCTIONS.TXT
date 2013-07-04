@@ -1,2 +1,0 @@
-Copy Applied Informatics' POCO C++ libraries here
-the build_*.cmd files should be in this folder.

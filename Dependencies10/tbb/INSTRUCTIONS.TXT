@@ -1,5 +1,0 @@
-Copy Intel's TBB 4.0 here
-The folder structure in this folder should be:
-	- bin
-	- include
-	- lib
