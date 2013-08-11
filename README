@@ -1,27 +1,48 @@
 Compiling:
 
-You must have a copy of Visual Studio 2010 with SP1 installed.
+You must have Visual Studio 2012 Update 3 or later installed (express versions might work as long as you also have the Windows SDK installed).
 
-Also required is the boost library, both includes and compiled libraries
-If you don't have it, get boost from http://www.boost.org/
-Compilation instructions (how to use bjam for your compiler) can be found at http://www.boost.org/doc/libs/1_52_0/more/getting_started/windows.html
-Once compiled, make sure to add the include and lib folders to your VC++ directories inside Visual Studio.
-
-The other 2 dependencies are project-local.
-Because of their size, they aren't directly included into the project tree
-
-Get poco from http://pocoproject.org/download/index.html (basic edition is sufficient)
-It must be extracted into Dependencies10/poco folder, such that the folder structure matches the one in INSTRUCTIONS.TXT
-After extracting, edit build_vs100.bat with a text editor, and replace the word "shared" in the last line with "all"
-Optionally, you can also replace the word "samples" with "nosamples" for faster builds
-After that, create a Visual Studio 2010 Command prompt, and invoke build_vs100.bat from it
-
-Get tbb from http://threadingbuildingblocks.org/download.php
-It is recommended to get the precompiled binaries for windows of the latest stable release
-Compilation of this library will not be discussed here
-Extract the downloaded archive into Dependencies10/tbb folder, such that the folder structure matches the one in INSTRUCTIONS.TXT
-
-You are now ready to open Source/Hive.sln in Visual Studio 2010
+The following dependencies are required to build Hive:
+	BOOST:
+	You need both includes and compiled libraries
+	If you don't have it, get boost from http://www.boost.org/
+	Compilation instructions (how to use bjam for your compiler) can be found at http://www.boost.org/doc/libs/1_54_0/more/getting_started/windows.html
+	Once compiled, make sure to add the include and lib folders to your VC++ directories inside Visual Studio (User property sheet for your Platform).
+	
+	POCO:
+	Get my customized version by cloning git@github.com:rajkosto/deps-poco.git into some out-of-tree directory.
+	Set the environment variable POCO_DIR to the directory Poco.props can be found in.
+	The parts of Poco should be built in the following order: CppUnit,Foundation,XML,Zip,Util,Net
+	For each of them, open the corresponding solution file for your desired Visual Studio toolset, go to Build->Batch Build, Select All, then click Build.
+	You should have 0 failed configurations after the build is done for each one.
+	
+	TBB:
+	Get my customized version by cloning git@github.com:rajkosto/deps-tbb.git into some out-of-tree directory.
+	Set the environment variable TBB_DIR to the directory TBB.props can be found in.
+	To build TBB, go to the build/vsproject folder from the folder you cloned into.
+	Open the makefile_XXX solution for the desired Visual Studio toolset you want to use.
+	Go to Build->Batch Build, Select All and then click Build.
+	There should be 0 failed configurations after the build is complete.
+	
+	DETOURS:
+	Get my customized version by cloning git@github.com:rajkosto/deps-detours.git into some out-of-tree directory.
+	Set the environment variable DETOURS_DIR to the directory Detours.props can be found in.
+	Open a Visual Studio command prompt which matches your wanted toolset/platform, cd to the folder, and run nmake from it.
+	Some samples might fail to build, but as long as you've got detours.lib, it doesn't matter.
+	
+	MYSQL:
+	Get my precompiled version by cloning git@github.com:rajkosto/deps-mysql.git into some out-of-tree directory.
+	Set the environment variable MYSQL_DIR to the directory MySQL.props can be found in.
+	As the libraries are precompiled for any possible supported Visual Studio toolchain, you don't compile them yourself.
+	
+	POSTGRESQL: (only if you want to build DatabasePostgre which probably doesn't work anyway)
+	Get my precompiled version by cloning git@github.com:rajkosto/deps-postgresql.git into some out-of-tree directory.
+	Set the environment variable POSTGRESQL_DIR to the directory PostgreSQL.props can be found in.
+	As the libraries are precompiled for any possible supported Visual Studio toolchain, you don't compile them yourself.
+	
+You are now ready to open Source/Hive.sln in Visual Studio. The default projects are set to build using the 2012-xp toolset.
+If you are using a different toolset, select all the projects in the solution, right click -> Properties, select "All Configurations" from the top-left combobox,
+go to the General tab, and select the Platform Toolset you want. After that, click Apply or OK to close the Properties page.
 From there, simply compile the Release configuration to get binaries that can be used in-game
 The Debug configuration simply compiles an executable that runs some tests, and is not relevant here
 
