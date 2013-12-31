@@ -1,13 +1,25 @@
 Compiling:
 
-You must have Visual Studio 2012 Update 3 or later installed (express versions might work as long as you also have the Windows SDK installed).
+You must have Visual Studio 2012 Update 4 or later installed (express versions might work as long as you also have the Windows SDK installed).
 
 The following dependencies are required to build Hive:
 	BOOST:
 	You need both includes and compiled libraries
 	If you don't have it, get boost from http://www.boost.org/
-	Compilation instructions (how to use bjam for your compiler) can be found at http://www.boost.org/doc/libs/1_54_0/more/getting_started/windows.html
+	Compilation instructions (how to use bjam for your compiler) can be found at http://www.boost.org/doc/libs/1_55_0/more/getting_started/windows.html
+	Use 1.54 for vs2012 and 1.55 or higher for vs2013 (1.54 has a bug on vs2012, might be fixed in post 1.55 releases)
 	Once compiled, make sure to add the include and lib folders to your VC++ directories inside Visual Studio (User property sheet for your Platform).
+        Sample bjam command line (after running boostrap.bat to get bjam.exe):
+		For Visual Studio 2012:
+			bjam toolset=msvc-11.0 variant=release,debug runtime-link=shared,static link=static threading=multi address-model=32 --without-log --stagedir=lib\x86\v110 --build-dir=out\x86\v110
+		For Visual Studio 2013:
+			bjam toolset=msvc-12.0 variant=release,debug runtime-link=shared,static link=static threading=multi address-model=32 --without-log --stagedir=lib\x86\v120 --build-dir=out\x86\v120
+
+	Then copy $(BOOST_DIR)boost to $(BOOST_DIR)\include\ (a new folder you made) and add
+		$(BOOST_DIR)include 
+	to VC++ Include directories and 
+		$(BOOST_DIR)lib\$(PlatformShortName)\$(PlatformToolset)\lib
+	to VC++ Library directories
 	
 	POCO:
 	Get my customized version by cloning git@github.com:rajkosto/deps-poco.git into some out-of-tree directory.
